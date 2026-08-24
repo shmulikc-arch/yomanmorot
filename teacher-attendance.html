@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>יומן נוכחות מורות</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700&family=Rubik:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#FAF6EF;
+    --ink:#2E3A3F;
+    --ink-soft:#5C6A6E;
+    --line:#DED4C2;
+    --present:#6B8F71;
+    --present-bg:#E7EFE6;
+    --absence:#B5484F;
+    --absence-bg:#F6E4E3;
+    --sick:#C97B3D;
+    --sick-bg:#F5E6D8;
+    --declaration:#4A7C8C;
+    --declaration-bg:#E1EBEE;
+    --vacation:#B99A2E;
+    --vacation-bg:#F3EBD2;
+    --maternity:#8873A6;
+    --maternity-bg:#ECE6F3;
+    --muted-bg:#EFE9DC;
+    --card:#FFFFFF;
+    --shadow: 0 2px 10px rgba(46,58,63,0.07);
+    --radius: 10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Assistant', system-ui, sans-serif;
+    min-height:100vh;
+  }
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background-image: repeating-linear-gradient(to bottom, transparent 0 39px, var(--line) 39px 40px);
+    opacity:0.35;
+    pointer-events:none;
+    z-index:0;
+  }
+  .app{ position:relative; z-index:1; max-width:1150px; margin:0 auto; padding:28px 20px 60px; }
+
+  header.top{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:22px; flex-wrap:wrap; gap:10px; }
+  header.top h1{
+    font-family:'Rubik', sans-serif; font-weight:700; font-size:1.7rem; margin:0;
+    letter-spacing:-0.3px;
+  }
+  header.top h1 .accent{ color:var(--present); }
+  header.top .sub{ color:var(--ink-soft); font-size:0.92rem; margin-top:4px;}
+  .tabs{ display:flex; gap:8px; flex-wrap:wrap; }
+  .tab-btn{
+    border:1px solid var(--line); background:var(--card); color:var(--ink-soft);
+    padding:8px 16px; border-radius:999px; font-family:'Assistant',sans-serif; font-size:0.9rem; font-weight:600;
+    cursor:pointer; transition: all .15s ease;
+  }
+  .tab-btn:hover{ border-color:var(--present); color:var(--ink); }
+  .tab-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+
+  .layout{ display:grid; grid-template-columns: 280px 1fr; gap:20px; align-items:start; }
+  @media (max-width: 800px){ .layout{ grid-template-columns: 1fr; } }
+
+  .panel{ background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); padding:18px; }
+  .full-panel{ grid-column: 1 / -1; }
+
+  .teacher-list-panel h2{ font-family:'Rubik',sans-serif; font-size:1rem; margin:0 0 12px; }
+  .search{
+    width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--line);
+    font-family:'Assistant',sans-serif; font-size:0.92rem; margin-bottom:12px; background:var(--bg);
+  }
+  .search:focus{ outline:2px solid var(--present); outline-offset:1px; }
+  .teacher-item{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:10px 10px; border-radius:8px; cursor:pointer; margin-bottom:4px; transition: background .12s;
+    border:1px solid transparent;
+  }
+  .teacher-item:hover{ background:var(--bg); }
+  .teacher-item.active{ background:var(--present-bg); border-color:var(--present); }
+  .teacher-item .name{ font-weight:600; font-size:0.95rem; }
+  .teacher-item .days{ font-size:0.72rem; color:var(--ink-soft); margin-top:2px; }
+  .teacher-item .dot-btn{ background:none;border:none;color:var(--ink-soft);font-size:1.1rem;cursor:pointer;padding:2px 6px;border-radius:6px;}
+  .teacher-item .dot-btn:hover{ background:var(--muted-bg); }
+
+  .add-teacher-btn{
+    width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1.5px dashed var(--line);
+    background:transparent; color:var(--ink-soft); font-family:'Assistant',sans-serif; font-weight:600;
+    cursor:pointer; transition: all .15s;
+  }
+  .add-teacher-btn:hover{ border-color:var(--present); color:var(--present); }
+
+  .empty-state{ text-align:center; padding:60px 20px; color:var(--ink-soft); }
+  .empty-state .big{ font-size:2.4rem; margin-bottom:10px; }
+
+  .month-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; flex-wrap:wrap; gap:10px;}
+  .month-header .titles h2{ font-family:'Rubik',sans-serif; font-size:1.25rem; margin:0 0 3px; }
+  .month-header .titles .idnum{ font-size:0.78rem; color:var(--ink-soft); }
+  .month-header .titles .workdays{ font-size:0.85rem; color:var(--ink-soft); }
+  .month-nav{ display:flex; align-items:center; gap:10px; }
+  .month-nav button{
+    width:32px;height:32px;border-radius:8px;border:1px solid var(--line);background:var(--card);
+    cursor:pointer; font-size:1rem; color:var(--ink);
+  }
+  .month-nav button:hover{ border-color:var(--present); }
+  .month-nav .label{ font-weight:600; min-width:110px; text-align:center; font-family:'Rubik',sans-serif; font-size:0.95rem;}
+
+  .action-row{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 14px; }
+  .pill-btn{
+    border:1px solid var(--line); background:var(--bg); color:var(--ink); font-family:'Assistant',sans-serif;
+    font-weight:600; font-size:0.82rem; padding:7px 14px; border-radius:8px; cursor:pointer;
+  }
+  .pill-btn:hover{ border-color:var(--present); color:var(--present); }
+  .pill-btn.maternity-btn{ border-color:var(--maternity); color:var(--maternity); background:var(--maternity-bg); }
+  .pill-btn.maternity-btn:hover{ filter:brightness(0.96); }
+
+  .month-banner{
+    background:var(--muted-bg); border:1px dashed var(--line); border-radius:10px; padding:12px 14px;
+    margin-bottom:14px; font-size:0.85rem; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+  }
+  .month-banner .banner-btns{ display:flex; gap:8px; }
+  .month-banner button{
+    border:none; padding:7px 14px; border-radius:8px; font-family:'Assistant',sans-serif; font-weight:700; font-size:0.8rem; cursor:pointer;
+  }
+  .month-banner .btn-copy{ background:var(--present); color:#fff; }
+  .month-banner .btn-redefine{ background:var(--card); color:var(--ink); border:1px solid var(--line) !important; }
+
+  .legend{ display:flex; gap:12px; flex-wrap:wrap; margin:10px 0 16px; font-size:0.78rem; color:var(--ink-soft);}
+  .legend span{ display:inline-flex; align-items:center; gap:5px;}
+  .legend .swatch{ width:11px;height:11px;border-radius:50%; display:inline-block;}
+
+  .calendar{ display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; }
+  .weekday-label{ text-align:center; font-size:0.75rem; font-weight:700; color:var(--ink-soft); padding-bottom:2px;}
+  .day-cell{
+    aspect-ratio: 1 / 0.85; border-radius:9px; padding:6px 6px; position:relative;
+    background:var(--muted-bg); border:1px solid transparent; cursor:default;
+    display:flex; flex-direction:column; justify-content:space-between;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .day-cell.empty{ background:transparent; }
+  .day-cell .num{ font-size:0.8rem; font-weight:600; color:var(--ink-soft); }
+  .day-cell.workday{ background:var(--present-bg); cursor:pointer; }
+  .day-cell.workday .num{ color:var(--present); }
+  .day-cell.workday:hover{ transform: translateY(-2px); box-shadow:0 3px 8px rgba(46,58,63,0.12); }
+  .day-cell.status-absence{ background:var(--absence-bg); }
+  .day-cell.status-absence .num{ color:var(--absence); }
+  .day-cell.status-sick{ background:var(--sick-bg); }
+  .day-cell.status-sick .num{ color:var(--sick); }
+  .day-cell.status-declaration{ background:var(--declaration-bg); }
+  .day-cell.status-declaration .num{ color:var(--declaration); }
+  .day-cell.status-vacation{ background:var(--vacation-bg); }
+  .day-cell.status-vacation .num{ color:var(--vacation); }
+  .day-cell.status-maternity{ background:var(--maternity-bg); }
+  .day-cell.status-maternity .num{ color:var(--maternity); }
+  .stamp{
+    align-self:flex-start; font-size:0.63rem; font-weight:700; padding:2px 5px; border-radius:999px;
+    background:rgba(255,255,255,0.7);
+  }
+  .status-absence .stamp{ color:var(--absence); }
+  .status-sick .stamp{ color:var(--sick); }
+  .status-declaration .stamp{ color:var(--declaration); }
+  .status-vacation .stamp{ color:var(--vacation); }
+  .status-maternity .stamp{ color:var(--maternity); }
+
+  .summary-bar{ display:flex; gap:12px; flex-wrap:wrap; margin-top:20px; padding-top:16px; border-top:1px dashed var(--line); }
+  .summary-chip{ background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:9px 14px; min-width:100px; }
+  .summary-chip .n{ font-family:'Rubik',sans-serif; font-weight:700; font-size:1.25rem; }
+  .summary-chip .l{ font-size:0.72rem; color:var(--ink-soft); margin-top:2px; }
+
+  /* modal */
+  .overlay{ position:fixed; inset:0; background:rgba(46,58,63,0.4); display:flex; align-items:center; justify-content:center; z-index:50; padding:16px;}
+  .modal{ background:#fff; border-radius:14px; padding:22px; width:100%; max-width:400px; box-shadow:0 10px 40px rgba(0,0,0,0.25);}
+  .modal h3{ font-family:'Rubik',sans-serif; margin:0 0 4px; font-size:1.1rem;}
+  .modal .date-sub{ color:var(--ink-soft); font-size:0.85rem; margin-bottom:14px;}
+  .modal label{ display:block; font-size:0.85rem; font-weight:600; margin:12px 0 6px;}
+  .status-options{ display:flex; flex-wrap:wrap; gap:8px; }
+  .status-opt{ flex:1 1 45%; border:1.5px solid var(--line); border-radius:9px; padding:9px; cursor:pointer; text-align:center; font-size:0.83rem; font-weight:600; background:#fff; transition:all .12s;}
+  .status-opt:hover{ border-color:var(--ink-soft); }
+  .status-opt.sel-present{ border-color:var(--present); background:var(--present-bg); color:var(--present); }
+  .status-opt.sel-absence{ border-color:var(--absence); background:var(--absence-bg); color:var(--absence); }
+  .status-opt.sel-sick{ border-color:var(--sick); background:var(--sick-bg); color:var(--sick); }
+  .status-opt.sel-declaration{ border-color:var(--declaration); background:var(--declaration-bg); color:var(--declaration); }
+  .status-opt.sel-vacation{ border-color:var(--vacation); background:var(--vacation-bg); color:var(--vacation); }
+  .modal textarea, .modal input[type=text], .modal input[type=date], .modal select{
+    width:100%; border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-family:'Assistant',sans-serif;
+    font-size:0.9rem; resize:vertical; background:var(--bg);
+  }
+  .date-range-row{ display:flex; gap:10px; }
+  .date-range-row > div{ flex:1; }
+  .modal-actions{ display:flex; gap:8px; margin-top:18px; }
+  .btn{ flex:1; padding:10px; border-radius:8px; border:none; font-family:'Assistant',sans-serif; font-weight:700; cursor:pointer; font-size:0.9rem;}
+  .btn-primary{ background:var(--ink); color:#fff; }
+  .btn-secondary{ background:var(--bg); color:var(--ink); border:1px solid var(--line); }
+  .btn-danger-text{ background:none; border:none; color:var(--absence); font-size:0.82rem; text-decoration:underline; cursor:pointer; margin-top:10px; }
+
+  .weekday-picker{ display:flex; gap:6px; flex-wrap:wrap; }
+  .weekday-picker label{ display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; font-size:0.72rem; font-weight:600; color:var(--ink-soft); margin:0;}
+  .weekday-picker input{ display:none; }
+  .weekday-picker span{
+    width:34px; height:34px; border-radius:50%; border:1.5px solid var(--line); display:flex; align-items:center; justify-content:center;
+    font-size:0.8rem; transition: all .12s;
+  }
+  .weekday-picker input:checked + span{ background:var(--present); border-color:var(--present); color:#fff; }
+
+  /* report / history table */
+  .report-table{ width:100%; border-collapse:collapse; font-size:0.87rem; }
+  .report-table th{ text-align:right; font-family:'Rubik',sans-serif; font-size:0.76rem; color:var(--ink-soft); padding:8px 10px; border-bottom:2px solid var(--line); }
+  .report-table td{ padding:9px 10px; border-bottom:1px solid var(--line); }
+  .report-table tr:hover td{ background:var(--bg); }
+  .badge{ display:inline-block; padding:2px 9px; border-radius:999px; font-size:0.74rem; font-weight:700; }
+  .badge.absence{ background:var(--absence-bg); color:var(--absence);}
+  .badge.sick{ background:var(--sick-bg); color:var(--sick);}
+  .badge.declaration{ background:var(--declaration-bg); color:var(--declaration);}
+  .badge.vacation{ background:var(--vacation-bg); color:var(--vacation);}
+  .badge.maternity{ background:var(--maternity-bg); color:var(--maternity);}
+
+  .hint{ color:var(--ink-soft); font-size:0.85rem; }
+
+  .field-row{ display:flex; gap:14px; flex-wrap:wrap; align-items:end; margin-bottom:18px;}
+  .field-group{ display:flex; flex-direction:column; gap:6px; }
+  .field-group label{ font-size:0.82rem; font-weight:600; color:var(--ink-soft); }
+  .field-group select, .field-group input[type=date]{
+    padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); font-family:'Assistant',sans-serif; font-size:0.9rem;
+  }
+  .month-group-header{ font-family:'Rubik',sans-serif; font-weight:700; font-size:0.9rem; color:var(--ink-soft); margin:18px 0 8px; padding-bottom:6px; border-bottom:1px dashed var(--line); }
+  .export-btn{
+    background:var(--present); color:#fff; border:none; padding:11px 22px; border-radius:9px; font-family:'Assistant',sans-serif;
+    font-weight:700; font-size:0.92rem; cursor:pointer;
+  }
+  .export-btn:hover{ filter:brightness(0.95); }
+  .export-note{ font-size:0.8rem; color:var(--ink-soft); margin-top:10px; }
+  .teacher-checklist{ display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:10px; background:var(--bg); }
+  .teacher-checklist label{ display:flex; align-items:center; gap:8px; font-size:0.88rem; cursor:pointer; }
+  .checklist-actions{ display:flex; gap:10px; margin-top:8px; }
+  .checklist-actions button{ background:none; border:none; color:var(--present); font-size:0.8rem; font-weight:600; cursor:pointer; text-decoration:underline; padding:0;}
+  .loading-note{ text-align:center; padding:40px; color:var(--ink-soft); }
+  .login-float-btn{
+    display:block; width:calc(100% - 8px); margin:26px auto 4px; padding:13px;
+    border:none; border-radius:999px; background:var(--ink); color:#fff;
+    font-family:'Assistant',sans-serif; font-weight:700; font-size:0.95rem; cursor:pointer;
+    box-shadow:0 8px 20px rgba(46,58,63,0.28), 0 2px 6px rgba(46,58,63,0.15);
+    transform:translateY(0); transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .login-float-btn:hover{
+    transform:translateY(-3px);
+    box-shadow:0 12px 26px rgba(46,58,63,0.32), 0 4px 10px rgba(46,58,63,0.18);
+    background:var(--present);
+  }
+  .login-float-btn:active{ transform:translateY(-1px); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div>
+      <h1>יומן <span class="accent">נוכחות</span> מורות</h1>
+      <div class="sub">מעקב חודשי אחר ימי עבודה, היעדרויות וחופשות · מסונכרן בענן</div>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="calendar" onclick="switchTab('calendar')">לוח מורה</button>
+      <button class="tab-btn" data-tab="history" onclick="switchTab('history')">היסטוריה</button>
+      <button class="tab-btn" data-tab="report" onclick="switchTab('report')">דוח חודשי כולל</button>
+      <button class="tab-btn" data-tab="export" onclick="switchTab('export')">ייצוא לאקסל</button>
+    </div>
+  </header>
+
+  <div id="loginScreen" class="panel" style="max-width:380px; margin:60px auto;">
+    <h2 style="font-family:'Rubik',sans-serif; font-size:1.15rem; margin:0 0 4px;">כניסה למערכת</h2>
+    <div class="hint" style="margin-bottom:16px;">יש להתחבר עם אימייל וסיסמה כדי לצפות ולדווח נוכחות.</div>
+    <label>אימייל</label>
+    <input type="text" id="loginEmail" placeholder="you@example.com" onkeydown="if(event.key==='Enter'){document.getElementById('loginPassword').focus();}" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); font-family:'Assistant',sans-serif; font-size:0.92rem;">
+    <label>סיסמה</label>
+    <div style="position:relative;">
+      <input type="password" id="loginPassword" onkeydown="if(event.key==='Enter'){doLogin();}" style="width:100%; padding:9px 40px 9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); font-family:'Assistant',sans-serif; font-size:0.92rem;">
+      <button type="button" onclick="togglePasswordVisibility()" id="pwToggleBtn" title="הצג/הסתר סיסמה"
+        style="position:absolute; left:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; padding:4px; color:var(--ink-soft); display:flex; align-items:center;">
+        <svg id="eyeIcon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      </button>
+    </div>
+    <div id="loginError" style="color:var(--absence); font-size:0.85rem; margin-top:10px; display:none;"></div>
+    <button class="login-float-btn" onclick="doLogin()">כניסה</button>
+  </div>
+
+  <div id="loadingNote" class="loading-note" style="display:none;">טוען נתונים...</div>
+
+  <div id="topBarSignout" style="display:none; text-align:left; margin-bottom:10px;">
+    <button class="pill-btn" onclick="doLogout()">התנתקות (<span id="loggedInEmail"></span>)</button>
+  </div>
+
+  <div id="mainContent" style="display:none;">
+  <div id="calendarTab" class="layout">
+    <div class="panel teacher-list-panel">
+      <h2>מורות (<span id="teacherCount">0</span>)</h2>
+      <input class="search" id="searchInput" placeholder="חיפוש מורה..." oninput="renderTeacherList()">
+      <div id="teacherList"></div>
+      <button class="add-teacher-btn" onclick="openTeacherModal()">+ הוספת מורה</button>
+    </div>
+
+    <div class="panel" id="calendarPanel">
+      <div class="empty-state" id="emptyState">
+        <div class="big">🗓️</div>
+        <div>בחרי מורה מהרשימה, או הוסיפי מורה חדשה כדי להתחיל</div>
+      </div>
+      <div id="calendarContent" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div id="historyTab" class="layout" style="display:none;">
+    <div class="panel full-panel">
+      <div class="field-row">
+        <div class="field-group">
+          <label>בחר/י מורה</label>
+          <select id="historyTeacherSelect" onchange="onHistoryTeacherChange()"></select>
+        </div>
+      </div>
+      <div id="historyContent"></div>
+    </div>
+  </div>
+
+  <div id="reportTab" class="layout" style="display:none;">
+    <div class="panel full-panel">
+      <div class="month-header">
+        <div class="titles">
+          <h2>דוח היעדרויות חודשי</h2>
+          <div class="workdays">כלל המורות, לפי חודש</div>
+        </div>
+        <div class="month-nav">
+          <button onclick="reportMonthShift(-1)">‹</button>
+          <div class="label" id="reportMonthLabel"></div>
+          <button onclick="reportMonthShift(1)">›</button>
+        </div>
+      </div>
+      <div id="reportContent"></div>
+    </div>
+  </div>
+
+  <div id="exportTab" class="layout" style="display:none;">
+    <div class="panel full-panel">
+      <h2 style="font-family:'Rubik',sans-serif; font-size:1.1rem; margin:0 0 4px;">ייצוא דוח לאקסל</h2>
+      <div class="hint" style="margin-bottom:16px;">בחר/י מורה אחת, כמה מורות, או את כולן, וטווח תאריכים - ותקבל/י קובץ Excel עם טבלה מלאה לכל מורה (כולל ימי העבודה שלה וכל הדיווחים).</div>
+      <div class="field-row">
+        <div class="field-group">
+          <label>מתאריך</label>
+          <input type="date" id="exportFrom">
+        </div>
+        <div class="field-group">
+          <label>עד תאריך</label>
+          <input type="date" id="exportTo">
+        </div>
+      </div>
+      <div class="field-group" style="margin-bottom:16px;">
+        <label>מורות לכלול בקובץ</label>
+        <div class="teacher-checklist" id="exportTeacherChecklist"></div>
+        <div class="checklist-actions">
+          <button onclick="selectAllExportTeachers()">בחר הכל</button>
+          <button onclick="clearExportTeachers()">נקה בחירה</button>
+        </div>
+      </div>
+      <button class="export-btn" onclick="generateExcel()">הורדת קובץ Excel</button>
+      <div class="export-note">כל מורה נבחרת תקבל גיליון (Sheet) נפרד בקובץ, עם שם ות.ז. בראש הטבלה. אם נבחרו כמה מורות - יתווסף גם גיליון סיכום.</div>
+    </div>
+  </div>
+  </div>
+</div>
+
+<div class="overlay" id="teacherModalOverlay" style="display:none;">
+  <div class="modal">
+    <h3 id="teacherModalTitle">מורה חדשה</h3>
+    <div class="date-sub">שם ות.ז. של המורה. את ימי העבודה שלה מגדירים במסך הלוח.</div>
+    <label>שם המורה</label>
+    <input type="text" id="teacherNameInput" placeholder="לדוגמה: רותם כהן">
+    <label>תעודת זהות</label>
+    <input type="text" id="teacherIdInput" placeholder="לדוגמה: 123456789" inputmode="numeric">
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeTeacherModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveTeacherModal()">שמירה</button>
+    </div>
+    <button class="btn-danger-text" id="deleteTeacherBtn" style="display:none;" onclick="deleteTeacherFromModal()">מחיקת מורה</button>
+  </div>
+</div>
+
+<div class="overlay" id="workDaysModalOverlay" style="display:none;">
+  <div class="modal">
+    <h3>ימי עבודה קבועים</h3>
+    <div class="date-sub" id="workDaysModalSub"></div>
+    <div class="weekday-picker" id="weekdayPickerMonth"></div>
+    <div class="hint" style="margin-top:10px;">ההגדרה תחול החל מהחודש הזה ואילך, עד שתשנה אותה שוב בחודש מאוחר יותר. חודשים קודמים לא ישתנו.</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeWorkDaysModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveWorkDaysModal()">שמירה</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="dayModalOverlay" style="display:none;">
+  <div class="modal">
+    <h3>עדכון נוכחות</h3>
+    <div class="date-sub" id="dayModalSub"></div>
+    <label>סטטוס</label>
+    <div class="status-options" id="statusOptions"></div>
+    <label>הערה (לא חובה)</label>
+    <textarea id="dayNote" rows="2" placeholder="פירוט קצר..."></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeDayModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveDayModal()">שמירה</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="maternityModalOverlay" style="display:none;">
+  <div class="modal">
+    <h3>חופשת לידה</h3>
+    <div class="date-sub" id="maternityModalSub"></div>
+    <label>טווח התאריכים</label>
+    <div class="date-range-row">
+      <div><input type="date" id="maternityFrom"></div>
+      <div><input type="date" id="maternityTo"></div>
+    </div>
+    <label>הערה (לא חובה)</label>
+    <textarea id="maternityNote" rows="2" placeholder="פירוט קצר..."></textarea>
+    <div class="hint" style="margin-top:8px;">יסומנו כחופשת לידה רק הימים שהם ימי עבודה קבועים של המורה בכל חודש בטווח.</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeMaternityModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveMaternityModal()">שמירה</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+import {
+  getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import {
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCiFWnDcPo4UjTBqJ8k-MRm6PVPebR6C7s",
+  authDomain: "attendance-teachers-37b39.firebaseapp.com",
+  projectId: "attendance-teachers-37b39",
+  storageBucket: "attendance-teachers-37b39.firebasestorage.app",
+  messagingSenderId: "438650211841",
+  appId: "1:438650211841:web:4d44dad823f846d9907a00"
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+const auth = getAuth(fbApp);
+
+async function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.style.display = 'none';
+  if(!email || !password){ errEl.textContent = 'נא למלא אימייל וסיסמה'; errEl.style.display='block'; return; }
+  try{
+    await signInWithEmailAndPassword(auth, email, password);
+  }catch(e){
+    errEl.textContent = 'התחברות נכשלה - בדקי אימייל/סיסמה ונסי שוב';
+    errEl.style.display = 'block';
+  }
+}
+async function doLogout(){
+  await signOut(auth);
+}
+
+onAuthStateChanged(auth, (user)=>{
+  if(user){
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('topBarSignout').style.display = 'block';
+    document.getElementById('loggedInEmail').textContent = user.email || '';
+    document.getElementById('loadingNote').style.display = 'block';
+    init();
+  } else {
+    document.getElementById('loginScreen').style.display = 'block';
+    document.getElementById('topBarSignout').style.display = 'none';
+    document.getElementById('loadingNote').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'none';
+  }
+});
+
+const WEEKDAY_NAMES = ['א','ב','ג','ד','ה','ו','ש'];
+const WEEKDAY_NAMES_FULL = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+const MONTH_NAMES = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+const STATUS_META = {
+  absence:     { label:'העדרות',       cls:'absence',     stamp:'העדרות' },
+  sick:        { label:'ימי מחלה',     cls:'sick',        stamp:'מחלה' },
+  declaration: { label:'הצהרה',        cls:'declaration', stamp:'הצהרה' },
+  vacation:    { label:'חופשה',        cls:'vacation',     stamp:'חופשה' },
+  maternity:   { label:'חופשת לידה',   cls:'maternity',    stamp:'לידה' }
+};
+
+let teachers = []; // {id, name, idNumber, workDaysHistory: {"YYYY-MM":[0..6]}}
+let absencesCache = {}; // teacherId -> {dateStr: {type, note}}
+let activeTeacherId = null;
+let viewYear, viewMonth;
+let reportYear, reportMonth;
+let editingTeacherId = null;
+let dayModalCtx = null;
+let historyTeacherId = null;
+
+const today = new Date();
+viewYear = today.getFullYear(); viewMonth = today.getMonth();
+reportYear = viewYear; reportMonth = viewMonth;
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+function monthKey(y,m){ return `${y}-${pad2(m+1)}`; }
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+function getWorkDaysForMonth(teacher, y, m){
+  const hist = teacher.workDaysHistory || {};
+  const key = monthKey(y,m);
+  if(hist[key]) return hist[key];
+  const keys = Object.keys(hist).filter(k=>k<key).sort();
+  if(keys.length>0) return hist[keys[keys.length-1]];
+  return [];
+}
+function hasExactMonthDefinition(teacher, y, m){
+  return !!(teacher.workDaysHistory && teacher.workDaysHistory[monthKey(y,m)]);
+}
+
+/* ---------- Firestore data layer ---------- */
+async function loadTeachersFromDB(){
+  const snap = await getDocs(collection(db,'teachers'));
+  teachers = snap.docs.map(d=>({id:d.id, workDaysHistory:{}, ...d.data()}));
+}
+async function saveTeacherToDB(t){
+  await setDoc(doc(db,'teachers', t.id), {
+    name: t.name, idNumber: t.idNumber || '', workDaysHistory: t.workDaysHistory || {}
+  });
+}
+async function deleteTeacherFromDBFn(id){
+  await deleteDoc(doc(db,'teachers', id));
+  try{ await deleteDoc(doc(db,'absences', id)); }catch(e){}
+}
+async function loadAbsences(teacherId){
+  if(absencesCache[teacherId]) return absencesCache[teacherId];
+  try{
+    const snap = await getDoc(doc(db,'absences', teacherId));
+    absencesCache[teacherId] = snap.exists() ? (snap.data().records || {}) : {};
+  }catch(e){ absencesCache[teacherId] = {}; }
+  return absencesCache[teacherId];
+}
+async function saveAbsences(teacherId){
+  await setDoc(doc(db,'absences', teacherId), { records: absencesCache[teacherId] || {} });
+}
+
+async function init(){
+  try{
+    await loadTeachersFromDB();
+  }catch(e){
+    document.getElementById('loadingNote').textContent = 'שגיאה בטעינת הנתונים מהשרת. בדקי חיבור לאינטרנט ורעני את הדף.';
+    console.error(e);
+    return;
+  }
+  document.getElementById('loadingNote').style.display = 'none';
+  document.getElementById('mainContent').style.display = 'block';
+  renderTeacherList();
+  renderReport();
+  const now = new Date();
+  document.getElementById('exportFrom').value = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-01`;
+  document.getElementById('exportTo').value = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(new Date(now.getFullYear(), now.getMonth()+1, 0).getDate())}`;
+}
+
+function switchTab(tab){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.getElementById('calendarTab').style.display = tab==='calendar' ? 'grid' : 'none';
+  document.getElementById('historyTab').style.display = tab==='history' ? 'grid' : 'none';
+  document.getElementById('reportTab').style.display = tab==='report' ? 'grid' : 'none';
+  document.getElementById('exportTab').style.display = tab==='export' ? 'grid' : 'none';
+  if(tab==='report') renderReport();
+  if(tab==='history') renderHistoryTeacherOptions();
+  if(tab==='export') renderExportTeacherList();
+}
+
+/* ---------- Teacher list ---------- */
+function renderTeacherList(){
+  const q = (document.getElementById('searchInput').value || '').trim();
+  const list = document.getElementById('teacherList');
+  const filtered = teachers.filter(t=>t.name.includes(q)).sort((a,b)=>a.name.localeCompare(b.name,'he'));
+  document.getElementById('teacherCount').textContent = teachers.length;
+  list.innerHTML = '';
+  if(filtered.length===0){
+    list.innerHTML = '<div class="hint" style="padding:10px 4px;">אין מורות תואמות</div>';
+    return;
+  }
+  filtered.forEach(t=>{
+    const days = getWorkDaysForMonth(t, today.getFullYear(), today.getMonth()).slice().sort().map(d=>WEEKDAY_NAMES[d]).join(' · ');
+    const el = document.createElement('div');
+    el.className = 'teacher-item' + (t.id===activeTeacherId?' active':'');
+    el.innerHTML = `
+      <div onclick="selectTeacher('${t.id}')" style="flex:1;">
+        <div class="name">${escapeHtml(t.name)}</div>
+        <div class="days">${days || 'טרם הוגדרו ימי עבודה'}</div>
+      </div>
+      <button class="dot-btn" onclick="openTeacherModal('${t.id}')" title="עריכה">⋯</button>
+    `;
+    list.appendChild(el);
+  });
+}
+
+async function selectTeacher(id){
+  activeTeacherId = id;
+  renderTeacherList();
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('calendarContent').style.display = 'block';
+  await loadAbsences(id);
+  renderCalendar();
+}
+
+/* ---------- Teacher modal ---------- */
+function openTeacherModal(id){
+  editingTeacherId = id || null;
+  const t = id ? teachers.find(x=>x.id===id) : null;
+  document.getElementById('teacherModalTitle').textContent = t ? 'עריכת מורה' : 'מורה חדשה';
+  document.getElementById('teacherNameInput').value = t ? t.name : '';
+  document.getElementById('teacherIdInput').value = t ? (t.idNumber||'') : '';
+  document.getElementById('deleteTeacherBtn').style.display = t ? 'block' : 'none';
+  document.getElementById('teacherModalOverlay').style.display = 'flex';
+}
+function closeTeacherModal(){ document.getElementById('teacherModalOverlay').style.display = 'none'; }
+
+async function saveTeacherModal(){
+  const name = document.getElementById('teacherNameInput').value.trim();
+  const idNumber = document.getElementById('teacherIdInput').value.trim();
+  if(!name){ alert('יש להזין שם מורה'); return; }
+  if(idNumber && !/^[0-9]{5,9}$/.test(idNumber)){ alert('תעודת זהות צריכה להכיל ספרות בלבד (5-9 ספרות)'); return; }
+  let isNew = false, newId = null;
+  if(editingTeacherId){
+    const t = teachers.find(x=>x.id===editingTeacherId);
+    t.name = name; t.idNumber = idNumber;
+    await saveTeacherToDB(t);
+  } else {
+    newId = 't_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+    const t = {id:newId, name, idNumber, workDaysHistory:{}};
+    teachers.push(t);
+    await saveTeacherToDB(t);
+    isNew = true;
+  }
+  closeTeacherModal();
+  renderTeacherList();
+  if(isNew){
+    await selectTeacher(newId);
+    openWorkDaysModal();
+  } else if(activeTeacherId===editingTeacherId){
+    renderCalendar();
+  }
+}
+
+async function deleteTeacherFromModal(){
+  if(!editingTeacherId) return;
+  if(!confirm('למחוק את המורה? פעולה זו תמחק גם את כל נתוני ההיעדרות שלה.')) return;
+  await deleteTeacherFromDBFn(editingTeacherId);
+  teachers = teachers.filter(t=>t.id!==editingTeacherId);
+  delete absencesCache[editingTeacherId];
+  if(activeTeacherId===editingTeacherId){
+    activeTeacherId = null;
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('calendarContent').style.display = 'none';
+  }
+  closeTeacherModal();
+  renderTeacherList();
+}
+
+/* ---------- Work days (per month) modal ---------- */
+function buildWeekdayPickerInto(elId, checkedDays){
+  const el = document.getElementById(elId);
+  el.innerHTML = '';
+  for(let d=0; d<7; d++){
+    const label = document.createElement('label');
+    const checked = checkedDays.includes(d) ? 'checked' : '';
+    label.innerHTML = `<input type="checkbox" value="${d}" ${checked}><span>${WEEKDAY_NAMES[d]}</span>`;
+    el.appendChild(label);
+  }
+}
+function openWorkDaysModal(){
+  const t = teachers.find(x=>x.id===activeTeacherId);
+  if(!t) return;
+  const current = getWorkDaysForMonth(t, viewYear, viewMonth);
+  buildWeekdayPickerInto('weekdayPickerMonth', current);
+  document.getElementById('workDaysModalSub').textContent = `${t.name} — ${MONTH_NAMES[viewMonth]} ${viewYear}`;
+  document.getElementById('workDaysModalOverlay').style.display = 'flex';
+}
+function closeWorkDaysModal(){ document.getElementById('workDaysModalOverlay').style.display = 'none'; }
+async function saveWorkDaysModal(){
+  const t = teachers.find(x=>x.id===activeTeacherId);
+  if(!t) return;
+  const days = Array.from(document.querySelectorAll('#weekdayPickerMonth input:checked')).map(i=>parseInt(i.value));
+  if(!t.workDaysHistory) t.workDaysHistory = {};
+  t.workDaysHistory[monthKey(viewYear, viewMonth)] = days;
+  await saveTeacherToDB(t);
+  closeWorkDaysModal();
+  renderTeacherList();
+  renderCalendar();
+}
+async function chooseCarryForward(){
+  const t = teachers.find(x=>x.id===activeTeacherId);
+  if(!t) return;
+  const inherited = getWorkDaysForMonth(t, viewYear, viewMonth);
+  if(!t.workDaysHistory) t.workDaysHistory = {};
+  t.workDaysHistory[monthKey(viewYear, viewMonth)] = inherited.slice();
+  await saveTeacherToDB(t);
+  renderTeacherList();
+  renderCalendar();
+}
+
+/* ---------- Calendar ---------- */
+function monthShift(delta){
+  viewMonth += delta;
+  if(viewMonth<0){ viewMonth=11; viewYear--; }
+  if(viewMonth>11){ viewMonth=0; viewYear++; }
+  renderCalendar();
+}
+
+function renderCalendar(){
+  const t = teachers.find(x=>x.id===activeTeacherId);
+  if(!t) return;
+  const absences = absencesCache[t.id] || {};
+  const container = document.getElementById('calendarContent');
+  const workDays = getWorkDaysForMonth(t, viewYear, viewMonth);
+  const hasExact = hasExactMonthDefinition(t, viewYear, viewMonth);
+
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
+
+  let cells = '';
+  for(let i=0;i<startWeekday;i++) cells += '<div class="day-cell empty"></div>';
+  let counts = {absence:0, sick:0, declaration:0, vacation:0, maternity:0, workdays:0};
+  for(let day=1; day<=daysInMonth; day++){
+    const dateObj = new Date(viewYear, viewMonth, day);
+    const wd = dateObj.getDay();
+    const isWorkday = workDays.includes(wd);
+    const dateStr = `${viewYear}-${pad2(viewMonth+1)}-${pad2(day)}`;
+    const rec = absences[dateStr];
+    let cls = 'day-cell';
+    let stampHtml = '';
+    if(isWorkday){
+      cls += ' workday';
+      counts.workdays++;
+      if(rec && STATUS_META[rec.type]){
+        cls += ' status-'+rec.type;
+        counts[rec.type] = (counts[rec.type]||0) + 1;
+        stampHtml = `<span class="stamp">${STATUS_META[rec.type].stamp}</span>`;
+      }
+    }
+    const clickAttr = isWorkday ? `onclick="openDayModal('${t.id}','${dateStr}')"` : '';
+    cells += `<div class="${cls}" ${clickAttr} title="${isWorkday ? (rec ? STATUS_META[rec.type].label + (rec.note ? ' — '+escapeHtml(rec.note):'') : 'לחצי לעדכון') : ''}">
+        <div class="num">${day}</div>
+        ${stampHtml}
+      </div>`;
+  }
+
+  const workdaysLabel = workDays.slice().sort().map(d=>WEEKDAY_NAMES_FULL[d]).join(', ') || 'טרם הוגדרו';
+
+  let bannerHtml = '';
+  if(!hasExact){
+    if(workDays.length>0){
+      bannerHtml = `<div class="month-banner">
+        <div>ימי העבודה החודש מבוססים על הגדרה קודמת (${workdaysLabel}). להעתיק אותה לחודש זה, או להגדיר מחדש?</div>
+        <div class="banner-btns">
+          <button class="btn-copy" onclick="chooseCarryForward()">העתקת ההגדרה</button>
+          <button class="btn-redefine" onclick="openWorkDaysModal()">הגדרה מחדש</button>
+        </div>
+      </div>`;
+    } else {
+      bannerHtml = `<div class="month-banner">
+        <div>טרם הוגדרו ימי עבודה למורה זו לחודש ${MONTH_NAMES[viewMonth]}.</div>
+        <div class="banner-btns"><button class="btn-copy" onclick="openWorkDaysModal()">הגדרת ימי עבודה</button></div>
+      </div>`;
+    }
+  }
+
+  container.innerHTML = `
+    <div class="month-header">
+      <div class="titles">
+        <h2>${escapeHtml(t.name)}</h2>
+        <div class="idnum">${t.idNumber ? 'ת.ז. '+escapeHtml(t.idNumber) : ''}</div>
+        <div class="workdays">ימי עבודה: ${workdaysLabel}${hasExact ? ' (הוגדר לחודש זה)' : (workDays.length ? ' (בהמשך להגדרה קודמת)' : '')}</div>
+      </div>
+      <div class="month-nav">
+        <button onclick="monthShift(-1)">‹</button>
+        <div class="label">${MONTH_NAMES[viewMonth]} ${viewYear}</div>
+        <button onclick="monthShift(1)">›</button>
+      </div>
+    </div>
+    ${bannerHtml}
+    <div class="action-row">
+      <button class="pill-btn" onclick="openWorkDaysModal()">שינוי ימי עבודה מחודש זה ואילך</button>
+      <button class="pill-btn maternity-btn" onclick="openMaternityModal()">חופשת לידה (טווח תאריכים)</button>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--present)"></span> יום עבודה</span>
+      <span><span class="swatch" style="background:var(--absence)"></span> העדרות</span>
+      <span><span class="swatch" style="background:var(--sick)"></span> ימי מחלה</span>
+      <span><span class="swatch" style="background:var(--declaration)"></span> הצהרה</span>
+      <span><span class="swatch" style="background:var(--vacation)"></span> חופשה</span>
+      <span><span class="swatch" style="background:var(--maternity)"></span> חופשת לידה</span>
+    </div>
+    <div class="calendar">
+      ${WEEKDAY_NAMES.map(w=>`<div class="weekday-label">${w}</div>`).join('')}
+      ${cells}
+    </div>
+    <div class="summary-bar">
+      <div class="summary-chip"><div class="n">${counts.workdays}</div><div class="l">ימי עבודה</div></div>
+      <div class="summary-chip"><div class="n">${counts.absence||0}</div><div class="l">העדרות</div></div>
+      <div class="summary-chip"><div class="n">${counts.sick||0}</div><div class="l">ימי מחלה</div></div>
+      <div class="summary-chip"><div class="n">${counts.declaration||0}</div><div class="l">הצהרה</div></div>
+      <div class="summary-chip"><div class="n">${counts.vacation||0}</div><div class="l">חופשה</div></div>
+      <div class="summary-chip"><div class="n">${counts.maternity||0}</div><div class="l">חופשת לידה</div></div>
+    </div>
+  `;
+}
+
+/* ---------- Day modal ---------- */
+function openDayModal(teacherId, dateStr){
+  dayModalCtx = {teacherId, dateStr};
+  const rec = (absencesCache[teacherId]||{})[dateStr];
+  const dateObj = new Date(dateStr+'T00:00:00');
+  let subText = `${WEEKDAY_NAMES_FULL[dateObj.getDay()]}, ${dateObj.getDate()} ב${MONTH_NAMES[dateObj.getMonth()]} ${dateObj.getFullYear()}`;
+  if(rec && rec.type==='maternity') subText += ' — יום זה מוגדר כחופשת לידה. לשינוי הטווח יש להשתמש בכפתור "חופשת לידה".';
+  document.getElementById('dayModalSub').textContent = subText;
+  document.getElementById('dayNote').value = rec ? (rec.note||'') : '';
+
+  const opts = document.getElementById('statusOptions');
+  const optionDefs = [
+    {key:'present', label:'נוכחת'},
+    {key:'absence', label:'העדרות'},
+    {key:'sick', label:'ימי מחלה'},
+    {key:'declaration', label:'הצהרה'},
+    {key:'vacation', label:'חופשה'}
+  ];
+  let selected = (rec && rec.type!=='maternity') ? rec.type : 'present';
+  opts.innerHTML = optionDefs.map(o=>
+    `<div class="status-opt ${o.key===selected?'sel-'+o.key:''}" data-key="${o.key}" onclick="pickStatus('${o.key}')">${o.label}</div>`
+  ).join('');
+  opts.dataset.selected = selected;
+  document.getElementById('dayModalOverlay').style.display = 'flex';
+}
+function pickStatus(key){
+  document.getElementById('statusOptions').dataset.selected = key;
+  document.querySelectorAll('.status-opt').forEach(el=>{
+    el.className = 'status-opt' + (el.dataset.key===key ? ' sel-'+key : '');
+  });
+}
+function closeDayModal(){ document.getElementById('dayModalOverlay').style.display='none'; dayModalCtx=null; }
+
+async function saveDayModal(){
+  if(!dayModalCtx) return;
+  const {teacherId, dateStr} = dayModalCtx;
+  const status = document.getElementById('statusOptions').dataset.selected;
+  const note = document.getElementById('dayNote').value.trim();
+  if(!absencesCache[teacherId]) absencesCache[teacherId] = {};
+  if(status==='present'){
+    delete absencesCache[teacherId][dateStr];
+  } else {
+    absencesCache[teacherId][dateStr] = {type:status, note};
+  }
+  await saveAbsences(teacherId);
+  closeDayModal();
+  renderCalendar();
+}
+
+/* ---------- Maternity leave modal (date range) ---------- */
+function openMaternityModal(){
+  const t = teachers.find(x=>x.id===activeTeacherId);
+  if(!t) return;
+  document.getElementById('maternityModalSub').textContent = t.name;
+  document.getElementById('maternityFrom').value = '';
+  document.getElementById('maternityTo').value = '';
+  document.getElementById('maternityNote').value = '';
+  document.getElementById('maternityModalOverlay').style.display = 'flex';
+}
+function closeMaternityModal(){ document.getElementById('maternityModalOverlay').style.display='none'; }
+
+async function saveMaternityModal(){
+  const t = teachers.find(x=>x.id===activeTeacherId);
+  if(!t) return;
+  const fromStr = document.getElementById('maternityFrom').value;
+  const toStr = document.getElementById('maternityTo').value;
+  const note = document.getElementById('maternityNote').value.trim();
+  if(!fromStr || !toStr){ alert('נא לבחור טווח תאריכים'); return; }
+  if(fromStr > toStr){ alert('תאריך ההתחלה חייב להיות לפני תאריך הסיום'); return; }
+  if(!absencesCache[t.id]) absencesCache[t.id] = {};
+  let d = new Date(fromStr+'T00:00:00');
+  const end = new Date(toStr+'T00:00:00');
+  let count = 0;
+  while(d<=end){
+    const y=d.getFullYear(), m=d.getMonth();
+    const wd_ = getWorkDaysForMonth(t, y, m);
+    if(wd_.includes(d.getDay())){
+      const dStr = `${y}-${pad2(m+1)}-${pad2(d.getDate())}`;
+      absencesCache[t.id][dStr] = {type:'maternity', note};
+      count++;
+    }
+    d.setDate(d.getDate()+1);
+  }
+  await saveAbsences(t.id);
+  closeMaternityModal();
+  renderCalendar();
+  alert(`סומנו ${count} ימי חופשת לידה (בהתאם לימי העבודה הקבועים של המורה בכל חודש בטווח).`);
+}
+
+/* ---------- History tab ---------- */
+function renderHistoryTeacherOptions(){
+  const sel = document.getElementById('historyTeacherSelect');
+  const sorted = teachers.slice().sort((a,b)=>a.name.localeCompare(b.name,'he'));
+  sel.innerHTML = sorted.map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+  if(sorted.length===0){
+    document.getElementById('historyContent').innerHTML = '<div class="empty-state"><div class="big">📋</div><div>עוד לא נוספו מורות למערכת</div></div>';
+    return;
+  }
+  if(!historyTeacherId || !sorted.find(t=>t.id===historyTeacherId)) historyTeacherId = sorted[0].id;
+  sel.value = historyTeacherId;
+  renderHistory();
+}
+function onHistoryTeacherChange(){
+  historyTeacherId = document.getElementById('historyTeacherSelect').value;
+  renderHistory();
+}
+async function renderHistory(){
+  const content = document.getElementById('historyContent');
+  if(!historyTeacherId){ content.innerHTML=''; return; }
+  const t = teachers.find(x=>x.id===historyTeacherId);
+  const absences = await loadAbsences(historyTeacherId);
+  const entries = Object.entries(absences).sort((a,b)=>b[0].localeCompare(a[0]));
+  if(entries.length===0){
+    content.innerHTML = `<div class="empty-state"><div class="big">✅</div><div>אין עדיין דיווחים עבור ${escapeHtml(t.name)}</div></div>`;
+    return;
+  }
+  let html = '';
+  let lastMonthLabel = null;
+  entries.forEach(([d, rec])=>{
+    const dateObj = new Date(d+'T00:00:00');
+    const monthLabel = `${MONTH_NAMES[dateObj.getMonth()]} ${dateObj.getFullYear()}`;
+    if(monthLabel !== lastMonthLabel){
+      if(lastMonthLabel!==null) html += '</tbody></table>';
+      html += `<div class="month-group-header">${monthLabel}</div>`;
+      html += '<table class="report-table"><thead><tr><th>תאריך</th><th>יום</th><th>סטטוס</th><th>הערה</th></tr></thead><tbody>';
+      lastMonthLabel = monthLabel;
+    }
+    const meta = STATUS_META[rec.type] || {label:rec.type, cls:''};
+    html += `<tr>
+      <td>${dateObj.getDate()}</td>
+      <td>${WEEKDAY_NAMES_FULL[dateObj.getDay()]}</td>
+      <td><span class="badge ${meta.cls}">${meta.label}</span></td>
+      <td>${rec.note ? escapeHtml(rec.note) : '—'}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  content.innerHTML = html;
+}
+
+/* ---------- Report tab ---------- */
+function reportMonthShift(delta){
+  reportMonth += delta;
+  if(reportMonth<0){ reportMonth=11; reportYear--; }
+  if(reportMonth>11){ reportMonth=0; reportYear++; }
+  renderReport();
+}
+async function renderReport(){
+  document.getElementById('reportMonthLabel').textContent = `${MONTH_NAMES[reportMonth]} ${reportYear}`;
+  const content = document.getElementById('reportContent');
+  if(teachers.length===0){
+    content.innerHTML = '<div class="empty-state"><div class="big">📋</div><div>עוד לא נוספו מורות למערכת</div></div>';
+    return;
+  }
+  content.innerHTML = '<div class="hint" style="padding:16px 0;">טוען...</div>';
+  const rows = [];
+  for(const t of teachers.slice().sort((a,b)=>a.name.localeCompare(b.name,'he'))){
+    const absences = await loadAbsences(t.id);
+    const prefix = `${reportYear}-${pad2(reportMonth+1)}-`;
+    const entries = Object.entries(absences).filter(([d])=>d.startsWith(prefix));
+    const workDays = getWorkDaysForMonth(t, reportYear, reportMonth);
+    const daysInMonth = new Date(reportYear, reportMonth+1, 0).getDate();
+    let workdaysCount = 0;
+    for(let day=1; day<=daysInMonth; day++){
+      if(workDays.includes(new Date(reportYear, reportMonth, day).getDay())) workdaysCount++;
+    }
+    rows.push({teacher:t, entries, workdaysCount});
+  }
+  if(rows.every(r=>r.entries.length===0)){
+    content.innerHTML = `<div class="empty-state"><div class="big">✅</div><div>לא דווחו היעדרויות באף מורה בחודש ${MONTH_NAMES[reportMonth]}</div></div>`;
+    return;
+  }
+  let html = `<table class="report-table"><thead><tr><th>מורה</th><th>ימי עבודה בחודש</th><th>סה"כ דיווחים</th><th>פירוט</th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    if(r.entries.length===0) return;
+    const detail = r.entries.sort((a,b)=>a[0].localeCompare(b[0])).map(([d,rec])=>{
+      const day = parseInt(d.split('-')[2]);
+      const meta = STATUS_META[rec.type] || {label:rec.type, cls:''};
+      return `<span class="badge ${meta.cls}">${day} ${meta.label}</span>`;
+    }).join(' ');
+    html += `<tr><td>${escapeHtml(r.teacher.name)}</td><td>${r.workdaysCount}</td><td>${r.entries.length}</td><td>${detail}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  content.innerHTML = html;
+}
+
+/* ---------- Export tab ---------- */
+function renderExportTeacherList(){
+  const el = document.getElementById('exportTeacherChecklist');
+  const sorted = teachers.slice().sort((a,b)=>a.name.localeCompare(b.name,'he'));
+  if(sorted.length===0){ el.innerHTML = '<div class="hint">עוד לא נוספו מורות</div>'; return; }
+  el.innerHTML = sorted.map(t=>`<label><input type="checkbox" class="exp-check" value="${t.id}" checked> ${escapeHtml(t.name)}</label>`).join('');
+}
+function selectAllExportTeachers(){ document.querySelectorAll('.exp-check').forEach(c=>c.checked=true); }
+function clearExportTeachers(){ document.querySelectorAll('.exp-check').forEach(c=>c.checked=false); }
+
+function sanitizeSheetName(name, usedNames){
+  let n = name.replace(/[:\\\/\?\*\[\]]/g,'-').slice(0,31) || 'Sheet';
+  let base = n, i=2;
+  while(usedNames.has(n)){ n = (base.slice(0, 28) + '-' + i).slice(0,31); i++; }
+  usedNames.add(n);
+  return n;
+}
+
+async function generateExcel(){
+  const fromStr = document.getElementById('exportFrom').value;
+  const toStr = document.getElementById('exportTo').value;
+  if(!fromStr || !toStr){ alert('נא לבחור טווח תאריכים'); return; }
+  if(fromStr > toStr){ alert('תאריך ההתחלה חייב להיות לפני תאריך הסיום'); return; }
+  const selectedIds = Array.from(document.querySelectorAll('.exp-check:checked')).map(c=>c.value);
+  if(selectedIds.length===0){ alert('נא לבחור לפחות מורה אחת'); return; }
+
+  const selectedTeachers = teachers.filter(t=>selectedIds.includes(t.id)).sort((a,b)=>a.name.localeCompare(b.name,'he'));
+  const wb = XLSX.utils.book_new();
+  const usedNames = new Set();
+  const summaryRows = [['מורה','ת.ז.','ימי עבודה בטווח','העדרות','ימי מחלה','הצהרה','חופשה','חופשת לידה']];
+
+  for(const t of selectedTeachers){
+    const absences = await loadAbsences(t.id);
+    const rows = [['שם:', t.name], ['ת.ז.:', t.idNumber || ''], [], ['תאריך','יום','יום עבודה','סטטוס','הערה']];
+    let d = new Date(fromStr+'T00:00:00');
+    const end = new Date(toStr+'T00:00:00');
+    const counts = {absence:0, sick:0, declaration:0, vacation:0, maternity:0, workdays:0};
+    while(d<=end){
+      const y=d.getFullYear(), m=d.getMonth();
+      const workDays = getWorkDaysForMonth(t, y, m);
+      const isWork = workDays.includes(d.getDay());
+      if(isWork) counts.workdays++;
+      const dStr = `${y}-${pad2(m+1)}-${pad2(d.getDate())}`;
+      const rec = absences[dStr];
+      if(rec && STATUS_META[rec.type]) counts[rec.type] = (counts[rec.type]||0)+1;
+      const statusLabel = rec ? (STATUS_META[rec.type] ? STATUS_META[rec.type].label : rec.type) : (isWork ? 'נוכחת' : '');
+      rows.push([dStr, WEEKDAY_NAMES_FULL[d.getDay()], isWork ? 'כן' : 'לא', statusLabel, rec ? (rec.note||'') : '']);
+      d.setDate(d.getDate()+1);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(t.name, usedNames));
+    summaryRows.push([t.name, t.idNumber||'', counts.workdays, counts.absence, counts.sick, counts.declaration, counts.vacation, counts.maternity]);
+  }
+
+  if(selectedTeachers.length>1){
+    const summaryWs = XLSX.utils.aoa_to_sheet(summaryRows);
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'סיכום');
+    const sheetOrder = wb.SheetNames;
+    const newOrder = ['סיכום', ...sheetOrder.filter(n=>n!=='סיכום')];
+    wb.SheetNames = newOrder;
+  }
+
+  XLSX.writeFile(wb, `דוח_נוכחות_${fromStr}_עד_${toStr}.xlsx`);
+}
+
+/* ---------- expose to window for inline handlers ---------- */
+window.switchTab = switchTab;
+window.renderTeacherList = renderTeacherList;
+window.selectTeacher = selectTeacher;
+window.openTeacherModal = openTeacherModal;
+window.closeTeacherModal = closeTeacherModal;
+window.saveTeacherModal = saveTeacherModal;
+window.deleteTeacherFromModal = deleteTeacherFromModal;
+window.openWorkDaysModal = openWorkDaysModal;
+window.closeWorkDaysModal = closeWorkDaysModal;
+window.saveWorkDaysModal = saveWorkDaysModal;
+window.chooseCarryForward = chooseCarryForward;
+window.monthShift = monthShift;
+window.openDayModal = openDayModal;
+window.closeDayModal = closeDayModal;
+window.pickStatus = pickStatus;
+window.saveDayModal = saveDayModal;
+window.openMaternityModal = openMaternityModal;
+window.closeMaternityModal = closeMaternityModal;
+window.saveMaternityModal = saveMaternityModal;
+window.reportMonthShift = reportMonthShift;
+window.onHistoryTeacherChange = onHistoryTeacherChange;
+window.generateExcel = generateExcel;
+window.selectAllExportTeachers = selectAllExportTeachers;
+window.clearExportTeachers = clearExportTeachers;
+window.doLogin = doLogin;
+window.doLogout = doLogout;
+</script>
+</body>
+</html>

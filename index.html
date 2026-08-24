@@ -274,13 +274,13 @@
     <h2 style="font-family:'Rubik',sans-serif; font-size:1.15rem; margin:0 0 4px;">כניסה למערכת</h2>
     <div class="hint" style="margin-bottom:16px;">יש להתחבר עם אימייל וסיסמה כדי לצפות ולדווח נוכחות.</div>
     <label>אימייל</label>
-    <input type="text" id="loginEmail" placeholder="you@example.com" onkeydown="if(event.key==='Enter'){document.getElementById('loginPassword').focus();}" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); font-family:'Assistant',sans-serif; font-size:0.92rem;">
+    <input type="text" id="loginEmail" name="login-user-field" autocomplete="off" placeholder="you@example.com" onkeydown="if(event.key==='Enter'){document.getElementById('loginPassword').focus();}" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); font-family:'Assistant',sans-serif; font-size:0.92rem;">
     <label>סיסמה</label>
     <div style="position:relative;">
-      <input type="password" id="loginPassword" onkeydown="if(event.key==='Enter'){doLogin();}" style="width:100%; padding:9px 40px 9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); font-family:'Assistant',sans-serif; font-size:0.92rem;">
+      <input type="password" id="loginPassword" name="login-pass-field" autocomplete="new-password" onkeydown="if(event.key==='Enter'){doLogin();}" style="width:100%; padding:9px 40px 9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); font-family:'Assistant',sans-serif; font-size:0.92rem;">
       <button type="button" onclick="togglePasswordVisibility()" id="pwToggleBtn" title="הצג/הסתר סיסמה"
-        style="position:absolute; left:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; padding:4px; color:var(--ink-soft); display:flex; align-items:center;">
-        <svg id="eyeIcon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        style="position:absolute; left:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; padding:6px; color:var(--ink-soft); display:flex; align-items:center; z-index:5;">
+        <svg id="eyeIcon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;">
           <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path>
           <circle cx="12" cy="12" r="3"></circle>
         </svg>
@@ -469,6 +469,17 @@ async function doLogin(){
     errEl.style.display = 'block';
   }
 }
+function togglePasswordVisibility(){
+  const input = document.getElementById('loginPassword');
+  const eye = document.getElementById('eyeIcon');
+  if(input.type === 'password'){
+    input.type = 'text';
+    eye.innerHTML = '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>';
+  } else {
+    input.type = 'password';
+    eye.innerHTML = '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path><circle cx="12" cy="12" r="3"></circle>';
+  }
+}
 async function doLogout(){
   await signOut(auth);
 }
@@ -485,8 +496,16 @@ onAuthStateChanged(auth, (user)=>{
     document.getElementById('topBarSignout').style.display = 'none';
     document.getElementById('loadingNote').style.display = 'none';
     document.getElementById('mainContent').style.display = 'none';
+    clearLoginFields();
+    setTimeout(clearLoginFields, 300);
   }
 });
+function clearLoginFields(){
+  const e = document.getElementById('loginEmail');
+  const p = document.getElementById('loginPassword');
+  if(e) e.value = '';
+  if(p) p.value = '';
+}
 
 const WEEKDAY_NAMES = ['א','ב','ג','ד','ה','ו','ש'];
 const WEEKDAY_NAMES_FULL = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
@@ -1098,6 +1117,7 @@ window.selectAllExportTeachers = selectAllExportTeachers;
 window.clearExportTeachers = clearExportTeachers;
 window.doLogin = doLogin;
 window.doLogout = doLogout;
+window.togglePasswordVisibility = togglePasswordVisibility;
 </script>
 </body>
 </html>

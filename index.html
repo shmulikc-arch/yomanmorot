@@ -328,6 +328,7 @@
       <input class="search" id="searchInput" placeholder="חיפוש מורה..." oninput="renderTeacherList()">
       <div id="teacherList"></div>
       <button class="add-teacher-btn" onclick="openTeacherModal()">+ הוספת מורה</button>
+      <button class="add-teacher-btn" onclick="openImportModal()" style="margin-top:8px;">📥 ייבוא מורות מקובץ</button>
     </div>
 
     <div class="panel" id="calendarPanel">
@@ -413,6 +414,36 @@
   </div>
 </div>
 
+<div class="overlay" id="importModalOverlay" style="display:none;">
+  <div class="modal" style="max-width:520px;">
+    <h3>ייבוא מורות מקובץ</h3>
+    <div class="date-sub">קובץ אקסל עם שתי עמודות: שם, ואז תעודת זהות (עם או בלי שורת כותרת).</div>
+
+    <label>בחירת קובץ</label>
+    <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv" style="width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg);">
+
+    <label>מה לעשות עם הרשימה?</label>
+    <div class="status-options" style="margin-bottom:8px;">
+      <div class="status-opt sel-present" id="importModeMerge" data-mode="merge" onclick="setImportMode('merge')">הוספה על הקיים</div>
+      <div class="status-opt" id="importModeReplace" data-mode="replace" onclick="setImportMode('replace')">מחיקה והחלפה מלאה</div>
+    </div>
+    <div class="hint" id="importModeExplain">מורות קיימות נשארות; מורות חדשות מהקובץ יתווספו. אם מזוהה מורה עם ת.ז. שכבר קיימת - תוצג בחירה עבורה.</div>
+
+    <div id="importReplaceWarning" style="display:none; margin-top:12px; background:var(--absence-bg); border:1px solid var(--absence); border-radius:9px; padding:10px 12px; font-size:0.85rem; color:var(--absence);">
+      ⚠️ פעולה זו תמחק את <b>כל</b> רשימת המורות הקיימת במערכת - כולל הגדרות ימי העבודה וההיסטוריה שלהן - ותחליף אותה ברשימה מהקובץ בלבד. הפעולה בלתי הפיכה.
+      <label style="color:var(--ink); margin-top:10px;">הקלידי את הסיסמה שלך לאישור</label>
+      <input type="password" id="importReauthPassword" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#fff; font-family:'Assistant',sans-serif; font-size:0.9rem;">
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeImportModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="parseImportFile()">ניתוח קובץ</button>
+    </div>
+
+    <div id="importPreviewArea" style="margin-top:16px;"></div>
+  </div>
+</div>
+
 <div class="overlay" id="workDaysModalOverlay" style="display:none;">
   <div class="modal">
     <h3>ימי עבודה קבועים</h3>
@@ -466,7 +497,8 @@ import {
   getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import {
-  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
+  EmailAuthProvider, reauthenticateWithCredential
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
 const firebaseConfig = {
@@ -712,6 +744,181 @@ async function deleteTeacherFromModal(){
     document.getElementById('calendarContent').style.display = 'none';
   }
   closeTeacherModal();
+  renderTeacherList();
+}
+
+/* ---------- Bulk import from file ---------- */
+let importMode = 'merge';
+let importParsedRows = []; // {name, idNumber}
+let importConflicts = [];  // {teacherId, existingName, newName, idNumber}
+let importNewRows = [];    // {name, idNumber}
+
+function openImportModal(){
+  importMode = 'merge';
+  importParsedRows = []; importConflicts = []; importNewRows = [];
+  document.getElementById('importFileInput').value = '';
+  document.getElementById('importPreviewArea').innerHTML = '';
+  document.getElementById('importReauthPassword').value = '';
+  setImportMode('merge');
+  document.getElementById('importModalOverlay').style.display = 'flex';
+}
+function closeImportModal(){ document.getElementById('importModalOverlay').style.display = 'none'; }
+
+function setImportMode(mode){
+  importMode = mode;
+  document.getElementById('importModeMerge').className = 'status-opt' + (mode==='merge' ? ' sel-present' : '');
+  document.getElementById('importModeReplace').className = 'status-opt' + (mode==='replace' ? ' sel-absence' : '');
+  document.getElementById('importReplaceWarning').style.display = mode==='replace' ? 'block' : 'none';
+  document.getElementById('importModeExplain').textContent = mode==='merge'
+    ? 'מורות קיימות נשארות; מורות חדשות מהקובץ יתווספו. אם מזוהה מורה עם ת.ז. שכבר קיימת - תוצג בחירה עבורה.'
+    : 'כל רשימת המורות הקיימת תימחק ותוחלף ברשימה מהקובץ בלבד.';
+  document.getElementById('importPreviewArea').innerHTML = '';
+}
+
+function parseImportFile(){
+  const fileInput = document.getElementById('importFileInput');
+  const file = fileInput.files && fileInput.files[0];
+  if(!file){ alert('נא לבחור קובץ'); return; }
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, {header:1});
+      processImportRows(rows);
+    }catch(err){
+      alert('לא הצלחתי לקרוא את הקובץ. ודאי שזהו קובץ Excel או CSV תקין.');
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function processImportRows(rows){
+  let dataRows = rows.filter(r=>r && r.length>0 && (r[0]!==undefined && r[0]!==''));
+  // detect and skip a header row
+  if(dataRows.length>0){
+    const c1 = String(dataRows[0][1]||'').trim();
+    if(!/^[0-9]{5,9}$/.test(c1)) dataRows = dataRows.slice(1);
+  }
+  importParsedRows = dataRows.map(r=>({
+    name: String(r[0]||'').trim(),
+    idNumber: String(r[1]||'').trim()
+  })).filter(r=>r.name);
+
+  if(importParsedRows.length===0){
+    document.getElementById('importPreviewArea').innerHTML = '<div class="hint">לא נמצאו שורות תקינות בקובץ.</div>';
+    return;
+  }
+
+  if(importMode==='replace'){
+    renderImportPreviewReplace();
+  } else {
+    // detect conflicts by matching idNumber against existing teachers
+    importConflicts = [];
+    importNewRows = [];
+    importParsedRows.forEach(row=>{
+      const match = row.idNumber ? teachers.find(t=>t.idNumber && t.idNumber===row.idNumber) : null;
+      if(match){
+        importConflicts.push({teacherId:match.id, existingName:match.name, newName:row.name, idNumber:row.idNumber, resolution:'keep'});
+      } else {
+        importNewRows.push(row);
+      }
+    });
+    renderImportPreviewMerge();
+  }
+}
+
+function renderImportPreviewMerge(){
+  const area = document.getElementById('importPreviewArea');
+  let html = `<div class="hint" style="margin-bottom:10px;">נמצאו ${importParsedRows.length} שורות בקובץ: ${importNewRows.length} מורות חדשות, ${importConflicts.length} התנגשויות (ת.ז. שכבר קיימת).</div>`;
+  if(importConflicts.length>0){
+    html += `<div style="margin-bottom:10px; display:flex; gap:10px;">
+      <button type="button" onclick="setAllConflicts('overwrite')" style="background:none;border:none;color:var(--brand);font-size:0.82rem;font-weight:600;cursor:pointer;text-decoration:underline;">אפס הגדרות לכולן</button>
+      <button type="button" onclick="setAllConflicts('keep')" style="background:none;border:none;color:var(--ink-soft);font-size:0.82rem;font-weight:600;cursor:pointer;text-decoration:underline;">השאר את כולן כמו שהן</button>
+    </div>
+    <div class="teacher-checklist" style="max-height:220px;">`;
+    importConflicts.forEach((c, idx)=>{
+      html += `<div style="border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:8px;">
+        <div style="font-weight:600; font-size:0.88rem;">${escapeHtml(c.existingName)} <span class="hint">(ת.ז. ${escapeHtml(c.idNumber)})</span></div>
+        <div class="status-options" style="margin-top:6px;">
+          <div class="status-opt ${c.resolution==='keep'?'sel-present':''}" onclick="setConflictResolution(${idx},'keep')">השאר כמו שהיא</div>
+          <div class="status-opt ${c.resolution==='overwrite'?'sel-absence':''}" onclick="setConflictResolution(${idx},'overwrite')">אפס הגדרות (עדכן מהקובץ)</div>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  html += `<div class="modal-actions"><button class="btn btn-primary" onclick="commitImport()">ביצוע ייבוא</button></div>`;
+  area.innerHTML = html;
+}
+function setConflictResolution(idx, val){
+  importConflicts[idx].resolution = val;
+  renderImportPreviewMerge();
+}
+function setAllConflicts(val){
+  importConflicts.forEach(c=>c.resolution=val);
+  renderImportPreviewMerge();
+}
+
+function renderImportPreviewReplace(){
+  const area = document.getElementById('importPreviewArea');
+  area.innerHTML = `<div class="hint" style="margin-bottom:10px;">נמצאו ${importParsedRows.length} מורות בקובץ. אישור הפעולה ימחק את כל ${teachers.length} המורות הקיימות במערכת ויחליף אותן ברשימה זו.</div>
+    <div class="modal-actions"><button class="btn btn-primary" style="background:var(--absence);" onclick="commitImport()">מחיקה והחלפה מלאה</button></div>`;
+}
+
+async function commitImport(){
+  if(importMode==='replace'){
+    const password = document.getElementById('importReauthPassword').value;
+    if(!password){ alert('נא להקליד את הסיסמה שלך לאישור'); return; }
+    try{
+      const cred = EmailAuthProvider.credential(auth.currentUser.email, password);
+      await reauthenticateWithCredential(auth.currentUser, cred);
+    }catch(e){
+      alert('הסיסמה שגויה. הפעולה בוטלה.');
+      return;
+    }
+    // delete all existing teachers + their absences
+    for(const t of teachers.slice()){
+      await deleteTeacherFromDBFn(t.id);
+      delete absencesCache[t.id];
+    }
+    teachers = [];
+    activeTeacherId = null;
+    // create new teachers from file
+    for(const row of importParsedRows){
+      const newId = 't_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+      const t = {id:newId, name:row.name, idNumber:row.idNumber, workDaysHistory:{}};
+      teachers.push(t);
+      await saveTeacherToDB(t);
+    }
+    alert(`הושלם: ${importParsedRows.length} מורות נטענו מהקובץ.`);
+  } else {
+    let addedCount = 0, resetCount = 0;
+    for(const row of importNewRows){
+      const newId = 't_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+      const t = {id:newId, name:row.name, idNumber:row.idNumber, workDaysHistory:{}};
+      teachers.push(t);
+      await saveTeacherToDB(t);
+      addedCount++;
+    }
+    for(const c of importConflicts){
+      if(c.resolution==='overwrite'){
+        const t = teachers.find(x=>x.id===c.teacherId);
+        if(t){
+          t.name = c.newName;
+          t.workDaysHistory = {};
+          await saveTeacherToDB(t);
+          resetCount++;
+        }
+      }
+    }
+    alert(`הושלם: ${addedCount} מורות חדשות נוספו, ${resetCount} מורות עודכנו ואופסו.`);
+  }
+  document.getElementById('emptyState').style.display = 'block';
+  document.getElementById('calendarContent').style.display = 'none';
+  closeImportModal();
   renderTeacherList();
 }
 
@@ -1163,6 +1370,13 @@ window.clearExportTeachers = clearExportTeachers;
 window.doLogin = doLogin;
 window.doLogout = doLogout;
 window.togglePasswordVisibility = togglePasswordVisibility;
+window.openImportModal = openImportModal;
+window.closeImportModal = closeImportModal;
+window.setImportMode = setImportMode;
+window.parseImportFile = parseImportFile;
+window.setConflictResolution = setConflictResolution;
+window.setAllConflicts = setAllConflicts;
+window.commitImport = commitImport;
 </script>
 </body>
 </html>

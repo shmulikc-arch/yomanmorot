@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700&family=Rubik:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
   :root{
     --bg:#FAF6EF;
@@ -392,7 +393,7 @@
         </div>
       </div>
       <button class="export-btn" onclick="generateExcel()">הורדת קובץ Excel</button>
-      <div class="export-note">הקובץ בנוי כטבלה אחת לכל חודש בטווח: שורה לכל מורה, עמודה לכל תאריך. "V" מסמן יום עבודה רגיל, ותיאור קצר (העדרות/מחלה/הצהרה/חופשה/לידה) מופיע ביום עם דיווח. ימים שאינם ימי עבודה קבועים נשארים ריקים.</div>
+      <div class="export-note">הקובץ בנוי כטבלה אחת לכל חודש בטווח, בסגנון הגיליון הישן: שורה לכל מורה, עמודה לכל תאריך, ימי שבת מסומנים באפור. "V" מסמן יום עבודה רגיל, תיאור קצר (העדרות/מחלה/הצהרה/חופשה) מופיע ביום עם דיווח, וחופשת לידה מופיעה כתא ממוזג "חל"ד" על פני כל הטווח.</div>
     </div>
   </div>
   </div>
@@ -1276,6 +1277,13 @@ function sanitizeSheetName(name, usedNames){
   return n;
 }
 
+const SAT_FILL = { type:'pattern', pattern:'solid', fgColor:{argb:'FFD9D9D9'} };
+const MATERNITY_FILL = { type:'pattern', pattern:'solid', fgColor:{argb:'FFECE6F3'} };
+const THIN_BORDER = { style:'thin', color:{argb:'FFB0B0B0'} };
+function applyBorder(cell){
+  cell.border = { top:THIN_BORDER, left:THIN_BORDER, bottom:THIN_BORDER, right:THIN_BORDER };
+}
+
 async function generateExcel(){
   const fromStr = document.getElementById('exportFrom').value;
   const toStr = document.getElementById('exportTo').value;
@@ -1287,7 +1295,6 @@ async function generateExcel(){
   const selectedTeachers = teachers.filter(t=>selectedIds.includes(t.id)).sort((a,b)=>a.name.localeCompare(b.name,'he'));
   for(const t of selectedTeachers){ await loadAbsences(t.id); }
 
-  // collect the list of (year, month) pairs covered by the range
   const months = [];
   let cursor = new Date(fromStr+'T00:00:00');
   const endD = new Date(toStr+'T00:00:00');
@@ -1296,7 +1303,7 @@ async function generateExcel(){
     cursor = new Date(cursor.getFullYear(), cursor.getMonth()+1, 1);
   }
 
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
   const usedNames = new Set();
 
   for(const {y, m} of months){
@@ -1305,41 +1312,109 @@ async function generateExcel(){
     const fromD = new Date(fromStr+'T00:00:00'), toD = new Date(toStr+'T00:00:00');
     if(y===fromD.getFullYear() && m===fromD.getMonth()) startDay = fromD.getDate();
     if(y===toD.getFullYear() && m===toD.getMonth()) endDay = toD.getDate();
-
     const dayNums = [];
     for(let d=startDay; d<=endDay; d++) dayNums.push(d);
 
-    const headerRow1 = ['שם מורה / ת.ז.'];
-    const headerRow2 = [''];
-    dayNums.forEach(d=>{
-      headerRow1.push(d);
-      const wd = new Date(y, m, d).getDay();
-      headerRow2.push(WEEKDAY_NAMES[wd]);
+    const ws = wb.addWorksheet(sanitizeSheetName(`${MONTH_NAMES[m]} ${y}`, usedNames), {views:[{rightToLeft:true}]});
+    const numCols = dayNums.length + 1;
+    ws.getColumn(1).width = 24;
+    dayNums.forEach((d,i)=>{ ws.getColumn(i+2).width = 4; });
+
+    ws.mergeCells(1,1,1,numCols);
+    const titleCell = ws.getCell(1,1);
+    titleCell.value = `דוח נוכחות מורות - ${MONTH_NAMES[m]} ${y} · בית חנה רחובות`;
+    titleCell.font = {bold:true, size:13};
+    titleCell.alignment = {horizontal:'center', vertical:'middle'};
+    ws.getRow(1).height = 24;
+
+    const headerRow = 2, weekdayRow = 3;
+    const nameHeaderCell = ws.getCell(headerRow,1);
+    nameHeaderCell.value = 'שם מורה / ת.ז.';
+    nameHeaderCell.font = {bold:true};
+    nameHeaderCell.alignment = {horizontal:'center', vertical:'middle'};
+    applyBorder(nameHeaderCell);
+    applyBorder(ws.getCell(weekdayRow,1));
+
+    dayNums.forEach((d,i)=>{
+      const col = i+2;
+      const wd = new Date(y,m,d).getDay();
+      const isSat = wd===6;
+      const numCell = ws.getCell(headerRow, col);
+      numCell.value = d;
+      numCell.font = {bold:true};
+      numCell.alignment = {horizontal:'center'};
+      applyBorder(numCell);
+      const wdCell = ws.getCell(weekdayRow, col);
+      wdCell.value = WEEKDAY_NAMES[wd];
+      wdCell.font = {bold:true, size:9};
+      wdCell.alignment = {horizontal:'center'};
+      applyBorder(wdCell);
+      if(isSat){ numCell.fill = SAT_FILL; wdCell.fill = SAT_FILL; }
     });
 
-    const rows = [headerRow1, headerRow2];
+    let rowIdx = 4;
     for(const t of selectedTeachers){
       const absences = absencesCache[t.id] || {};
       const workDays = getWorkDaysForMonth(t, y, m);
-      const row = [`${t.name}${t.idNumber ? ' / '+t.idNumber : ''}`];
-      dayNums.forEach(d=>{
-        const wd = new Date(y, m, d).getDay();
+      const nameCell = ws.getCell(rowIdx, 1);
+      nameCell.value = t.idNumber ? `${t.name}\n${t.idNumber}` : t.name;
+      nameCell.alignment = {horizontal:'center', vertical:'middle', wrapText:true};
+      nameCell.font = {bold:true, size:10};
+      applyBorder(nameCell);
+
+      const matDays = dayNums.filter(d=>{
+        const dStr = `${y}-${pad2(m+1)}-${pad2(d)}`;
+        return absences[dStr] && absences[dStr].type==='maternity';
+      });
+      let matStart=null, matEnd=null;
+      if(matDays.length>0){ matStart = Math.min(...matDays); matEnd = Math.max(...matDays); }
+
+      dayNums.forEach((d,i)=>{
+        const col = i+2;
+        const wd = new Date(y,m,d).getDay();
+        const isSat = wd===6;
+        const cell = ws.getCell(rowIdx, col);
+        applyBorder(cell);
+        if(isSat) cell.fill = SAT_FILL;
+        if(matStart!==null && d>=matStart && d<=matEnd) return;
         const isWork = workDays.includes(wd);
-        if(!isWork){ row.push(''); return; }
+        if(!isWork) return;
         const dStr = `${y}-${pad2(m+1)}-${pad2(d)}`;
         const rec = absences[dStr];
-        if(rec && STATUS_META[rec.type]){ row.push(STATUS_META[rec.type].stamp); }
-        else { row.push('V'); }
+        cell.alignment = {horizontal:'center'};
+        if(rec && STATUS_META[rec.type] && rec.type!=='maternity'){
+          cell.value = STATUS_META[rec.type].stamp;
+          cell.font = {size:8};
+        } else if(!rec){
+          cell.value = 'V';
+          cell.font = {bold:true};
+        }
       });
-      rows.push(row);
-    }
 
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    const sheetLabel = `${MONTH_NAMES[m]} ${y}`;
-    XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(sheetLabel, usedNames));
+      if(matStart!==null){
+        const startCol = 2 + dayNums.indexOf(matStart);
+        const endCol = 2 + dayNums.indexOf(matEnd);
+        if(endCol > startCol) ws.mergeCells(rowIdx, startCol, rowIdx, endCol);
+        const mCell = ws.getCell(rowIdx, startCol);
+        mCell.value = 'חל"ד';
+        mCell.alignment = {horizontal:'center', vertical:'middle'};
+        mCell.font = {bold:true};
+        mCell.fill = MATERNITY_FILL;
+      }
+      rowIdx++;
+    }
   }
 
-  XLSX.writeFile(wb, `דוח_נוכחות_${fromStr}_עד_${toStr}.xlsx`);
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `דוח_נוכחות_${fromStr}_עד_${toStr}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
 }
 
 /* ---------- expose to window for inline handlers ---------- */

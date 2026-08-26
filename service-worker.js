@@ -1,55 +1,28 @@
 // service-worker.js
-// Minimal offline "app shell" caching for יומן נוכחות מורות.
-// Only same-origin GET requests are handled here — Firebase/Firestore/Auth
-// calls and CDN scripts (fonts, xlsx, exceljs) are left untouched so the
-// app's live data is never served stale.
+// Registered only so the app satisfies the browser's "installable" criteria
+// (so it can be added to the home screen / installed).
+//
+// It intentionally does NOT cache anything and provides NO offline fallback:
+// every request goes straight to the network. If there is no internet
+// connection, the request simply fails and the app will not load.
+// This is deliberate — the app depends on live data from Firebase/Firestore,
+// so a stale offline copy would be misleading rather than useful.
 
-const CACHE_NAME = "yomanmorot-cache-v1";
-const APP_SHELL = [
-  "./",
-  "./index.html",
-  "./manifest.json",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png"
-];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
-  );
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
+  // Clean up any cache left over from an earlier version of this
+  // service worker that did cache files, so old installs stop
+  // serving stale content too.
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
-});
-
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-
-  // Let everything that isn't a same-origin GET go straight to the network
-  // (this keeps Firebase/Firestore/Auth and third-party CDN scripts live).
-  if (event.request.method !== "GET" || url.origin !== self.location.origin) {
-    return;
-  }
-
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const networkFetch = fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
-    })
+    caches.keys()
+      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
+
+// No caching logic here on purpose — every request is left to go
+// straight to the network, exactly as if there were no service worker.
+self.addEventListener("fetch", () => {});

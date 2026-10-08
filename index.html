@@ -2754,6 +2754,11 @@ function subsMonthTitle(rows){
   rows.forEach(r=>{ const [y,m] = r.date.split('-').map(Number); const k = MONTH_NAMES[m-1]+' '+y; if(!seen.includes(k)) seen.push(k); });
   return seen.join(' ו');
 }
+function subsFileTitle(rows){
+  const seen = [];
+  rows.forEach(r=>{ const m = MONTH_NAMES[+r.date.split('-')[1]-1]; if(!seen.includes(m)) seen.push(m); });
+  return 'שעות מילוי מקום ' + seen.join(' ו');
+}
 function exportSubsPdf(){
   const rows = subsCollect(); if(!rows) return;
   const total = rows.reduce((s,r)=> s + (parseFloat(r.hours)||0), 0);
@@ -2786,7 +2791,7 @@ function exportSubsPdf(){
     pagesHtml += mk(inner);
     if(p.extraSign) pagesHtml += mk((p.tail==='__TOTAL_NEXT__' ? `<table><tbody>${totalHtml}</tbody></table>` : '') + signHtml);
   });
-  const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>דיווח שעות מילוי מקום</title>
+  const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${escapeHtml(subsFileTitle(rows))}</title>
 <style>
 @page{ size:A4; margin:0; }
 html,body{ margin:0; padding:0; }
@@ -2810,7 +2815,8 @@ tr.t td{ font-weight:700; background:#f1f1f1; }
   fr.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0;';
   document.body.appendChild(fr);
   fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
-  const go = ()=>{ fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(()=>fr.remove(), 60000); };
+  const oldTitle = document.title;
+  const go = ()=>{ document.title = subsFileTitle(rows); fr.contentDocument.title = document.title; fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(()=>{ document.title = oldTitle; fr.remove(); }, 60000); };
   setTimeout(()=>{ const ims = [...fr.contentDocument.images].filter(x=>!x.complete); if(ims.length){ let n = ims.length; ims.forEach(im=>{ im.onload = im.onerror = ()=>{ if(--n===0) go(); }; }); } else go(); }, 300);
 }
 async function exportSubs(){
@@ -2833,7 +2839,7 @@ async function exportSubs(){
   }
   const buf = await wb.xlsx.writeBuffer();
   const url = URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-  const a = document.createElement('a'); a.href = url; a.download = 'שעות_מילוי_מקום.xlsx';
+  const a = document.createElement('a'); a.href = url; a.download = subsFileTitle(rows) + '.xlsx';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(url), 2000);
 }

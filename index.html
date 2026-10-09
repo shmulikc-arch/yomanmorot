@@ -2324,12 +2324,19 @@ function sysDaysFor(t, y, m, from, to){
   const dim = new Date(y,m+1,0).getDate();
   const a = (from.getFullYear()===y && from.getMonth()===m) ? from.getDate() : 1;
   const b = (to.getFullYear()===y && to.getMonth()===m) ? to.getDate() : dim;
-  const set = new Set();
-  for(let d=a; d<=b; d++){
-    const wd = new Date(y,m,d).getDay();
-    if(getWorkDaysForDate(t,y,m,d).includes(wd)) set.add(wd);
+  const segs = wdSegments(t, y, m);
+  let days;
+  if(!segs) days = getWorkDaysForMonth(t, y, m);
+  else {
+    /* איחוד ימי העבודה של כל טווחי הפיצול שנחתכים עם טווח התאריכים של הבלוק (לפי ימי שבוע, לא לפי התאריכים עצמם) */
+    const set = new Set();
+    segs.forEach((sg,i)=>{
+      const s0 = sg.from, s1 = i<segs.length-1 ? segs[i+1].from-1 : dim;
+      if(s0<=b && s1>=a) (sg.days||[]).forEach(d=>set.add(d));
+    });
+    days = [...set];
   }
-  return [...set].filter(d=>d<=5).sort((x,z)=>x-z);
+  return days.filter(d=>d<=5).sort((x,z)=>x-z);
 }
 function sameAmounts(a,b){ return HOUR_ROWS.every(r=>(a[r.key]||0)===(b[r.key]||0)); }
 function buildSysEntries(){

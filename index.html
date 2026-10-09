@@ -2319,6 +2319,18 @@ async function onSysPdfChosen(){
   }
 }
 
+/* ימי העבודה של המורה בתוך טווח התאריכים של הבלוק (מתחשב בפיצול ימי עבודה בתוך החודש) */
+function sysDaysFor(t, y, m, from, to){
+  const dim = new Date(y,m+1,0).getDate();
+  const a = (from.getFullYear()===y && from.getMonth()===m) ? from.getDate() : 1;
+  const b = (to.getFullYear()===y && to.getMonth()===m) ? to.getDate() : dim;
+  const set = new Set();
+  for(let d=a; d<=b; d++){
+    const wd = new Date(y,m,d).getDay();
+    if(getWorkDaysForDate(t,y,m,d).includes(wd)) set.add(wd);
+  }
+  return [...set].filter(d=>d<=5).sort((x,z)=>x-z);
+}
 function sameAmounts(a,b){ return HOUR_ROWS.every(r=>(a[r.key]||0)===(b[r.key]||0)); }
 function buildSysEntries(){
   const y = sysYear, m = sysMonth;
@@ -2343,7 +2355,7 @@ function buildSysEntries(){
       sysEntries.push({...old, teacher:t, isHome, cityTotal:r.total, sumOk:r.sumOk, label:parts.join(' ')});
     } else {
       // ימי העבודה נלקחים לפי חודש הדוח (ולא לפי התאריך של היום)
-      const days = getWorkDaysForMonth(t,y,m).filter(d=>d<=5).slice().sort((a,b)=>a-b);
+      const days = sysDaysFor(t, y, m, r.from, r.to);
       const res = distributeHours(amounts, days);
       sysEntries.push({key, teacher:t, idNumber:r.idNumber, label:parts.join(' '), amounts, days, alloc:res.alloc, cityTotal:r.total, sumOk:r.sumOk, isHome, from:r.from, to:r.to});
       fresh++;
@@ -2517,6 +2529,7 @@ function sysCellEdit(el){
 }
 function sysRedistribute(i){
   const e = sysEntries[i];
+  if(e.from && e.to && teachers.some(x=>x.id===e.teacher.id)) e.days = sysDaysFor(teachers.find(x=>x.id===e.teacher.id), sysYear, sysMonth, e.from, e.to);
   e.alloc = distributeHours(e.amounts, e.days).alloc;
   document.getElementById(`sysCard${i}`).outerHTML = sysCardHtml(e,i);
   refreshSysCard(i);

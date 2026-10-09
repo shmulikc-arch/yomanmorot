@@ -373,6 +373,12 @@
   .sub-row input[type=number]{ width:80px; } .sub-row input[type=text]{ width:110px; }
   .sub-id{ min-width:90px; font-size:0.88rem; color:var(--ink-soft); }
   .sub-x{ background:none; border:none; cursor:pointer; font-size:1rem; color:var(--absence); }
+
+  /* ===== פיצול ימי עבודה ===== */
+  .wd-seg{ border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-top:10px; background:var(--bg); }
+  .wd-seg-h{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:0.9rem; }
+  .wd-seg-h select{ padding:4px 8px; border-radius:8px; border:1px solid var(--line); font-family:'Assistant',sans-serif; }
+  .wd-x{ background:none; border:none; cursor:pointer; color:var(--absence); font-size:1rem; }
 </style>
 </head>
 <body>
@@ -679,11 +685,12 @@
 </div>
 
 <div class="overlay" id="workDaysModalOverlay" style="display:none;">
-  <div class="modal">
+  <div class="modal" style="max-height:92vh; overflow-y:auto;">
     <h3>ימי עבודה קבועים</h3>
     <div class="date-sub" id="workDaysModalSub"></div>
-    <div class="weekday-picker" id="weekdayPickerMonth"></div>
-    <div class="hint" style="margin-top:10px;">ההגדרה תחול החל מהחודש הזה ואילך, עד שתשנה אותה שוב בחודש מאוחר יותר. חודשים קודמים לא ישתנו.</div>
+    <div id="wdSegs"></div>
+    <button class="pill-btn" style="margin-top:10px;" onclick="wdAddSplit()">✂️ פיצול החודש לטווחי תאריכים</button>
+    <div class="hint" style="margin-top:10px;">ההגדרה תחול החל מהחודש הזה ואילך, עד שתשנה אותה שוב בחודש מאוחר יותר. אם מפצלים את החודש, ההגדרה האחרונה (עד סוף החודש) היא זו שתימשך לחודשים הבאים. חודשים קודמים לא ישתנו.</div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeWorkDaysModal()">ביטול</button>
       <button class="btn btn-primary" onclick="saveWorkDaysModal()">שמירה</button>
@@ -826,9 +833,34 @@ function pad2(n){ return String(n).padStart(2,'0'); }
 function monthKey(y,m){ return `${y}-${pad2(m+1)}`; }
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
 
+function wdSegments(teacher, y, m){
+  const sp = (teacher.workDaysSplits || {})[monthKey(y,m)];
+  return (sp && sp.length>1) ? sp : null;
+}
+/* ימי העבודה (מספרי ימי שבוע) של מורה בתאריך מסוים - מתחשב בפיצול החודש */
+function getWorkDaysForDate(teacher, y, m, d){
+  const segs = wdSegments(teacher, y, m);
+  if(segs){
+    let cur = segs[0];
+    for(const sg of segs){ if(sg.from<=d) cur = sg; }
+    return cur.days || [];
+  }
+  return getWorkDaysForMonth(teacher, y, m);
+}
+function wdLabel(teacher, y, m, fallbackDays){
+  const segs = wdSegments(teacher, y, m);
+  if(!segs) return (fallbackDays||[]).slice().sort().map(d=>WEEKDAY_NAMES_FULL[d]).join(', ') || 'טרם הוגדרו';
+  const dim = new Date(y, m+1, 0).getDate();
+  return segs.map((sg,i)=>{
+    const to = i<segs.length-1 ? segs[i+1].from-1 : dim;
+    return `${sg.from}–${to}: ${(sg.days||[]).slice().sort().map(d=>WEEKDAY_NAMES[d]).join(', ') || 'ללא'}`;
+  }).join(' | ');
+}
 function getWorkDaysForMonth(teacher, y, m){
   const hist = teacher.workDaysHistory || {};
   const key = monthKey(y,m);
+  const segsU = wdSegments(teacher, y, m);
+  if(segsU){ return [...new Set(segsU.flatMap(sg=>sg.days||[]))].sort((a,b)=>a-b); }
   if(hist[key]) return hist[key];
   const keys = Object.keys(hist).filter(k=>k<key).sort();
   if(keys.length>0) return hist[keys[keys.length-1]];
@@ -841,11 +873,11 @@ function hasExactMonthDefinition(teacher, y, m){
 /* ---------- Firestore data layer ---------- */
 async function loadTeachersFromDB(){
   const snap = await getDocs(collection(db,'teachers'));
-  teachers = snap.docs.map(d=>({id:d.id, workDaysHistory:{}, ...d.data()}));
+  teachers = snap.docs.map(d=>({id:d.id, workDaysHistory:{}, workDaysSplits:{}, ...d.data()}));
 }
 async function saveTeacherToDB(t){
   await setDoc(doc(db,'teachers', t.id), {
-    name: t.name, idNumber: t.idNumber || '', workDaysHistory: t.workDaysHistory || {}
+    name: t.name, idNumber: t.idNumber || '', workDaysHistory: t.workDaysHistory || {}, workDaysSplits: t.workDaysSplits || {}
   });
 }
 async function deleteTeacherFromDBFn(id){
@@ -1145,7 +1177,7 @@ async function commitImport(){
         const t = teachers.find(x=>x.id===c.teacherId);
         if(t){
           t.name = c.newName;
-          t.workDaysHistory = {};
+          t.workDaysHistory = {}; t.workDaysSplits = {};
           await saveTeacherToDB(t);
           resetCount++;
         }
@@ -1170,11 +1202,66 @@ function buildWeekdayPickerInto(elId, checkedDays){
     el.appendChild(label);
   }
 }
+let wdSegsState = [];   // [{to, days}] - 'to' = תאריך סיום הטווח; הטווח האחרון מסתיים בסוף החודש
+function wdDim(){ return new Date(viewYear, viewMonth+1, 0).getDate(); }
+function renderWdSegs(){
+  const dim = wdDim();
+  let from = 1, html = '';
+  wdSegsState.forEach((sg,i)=>{
+    const last = i===wdSegsState.length-1;
+    let head = '';
+    if(wdSegsState.length>1){
+      let sel;
+      if(last) sel = `<b>${dim}</b> (סוף החודש)`;
+      else {
+        const maxTo = wdSegsState[i+1].to-1;
+        let o = '';
+        for(let d=from; d<=maxTo; d++) o += `<option value="${d}"${d===sg.to?' selected':''}>${d}</option>`;
+        sel = `<select onchange="wdSetTo(${i},this.value)">${o}</select>`;
+      }
+      head = `<div class="wd-seg-h"><span>מתאריך <b>${from}</b> עד ${sel}</span><button class="wd-x" title="הסרת הטווח" onclick="wdRemoveSeg(${i})">✕</button></div>`;
+    }
+    const picks = [0,1,2,3,4,5,6].map(d=>`<label><input type="checkbox" ${sg.days.includes(d)?'checked':''} onchange="wdToggle(${i},${d},this.checked)"><span>${WEEKDAY_NAMES[d]}</span></label>`).join('');
+    html += `<div class="wd-seg">${head}<div class="weekday-picker">${picks}</div></div>`;
+    from = sg.to + 1;
+  });
+  document.getElementById('wdSegs').innerHTML = html;
+}
+function wdToggle(i,d,on){
+  const arr = wdSegsState[i].days;
+  const k = arr.indexOf(d);
+  if(on && k<0) arr.push(d);
+  if(!on && k>=0) arr.splice(k,1);
+}
+function wdSetTo(i,v){ wdSegsState[i].to = parseInt(v,10); renderWdSegs(); }
+function wdAddSplit(){
+  const dim = wdDim();
+  const lastI = wdSegsState.length-1;
+  const lastFrom = lastI===0 ? 1 : wdSegsState[lastI-1].to+1;
+  if(lastFrom >= dim){ alert('אין מקום לפיצול נוסף בחודש הזה'); return; }
+  const to = Math.min(dim-1, Math.max(lastFrom, Math.floor((lastFrom+dim)/2)));
+  const last = wdSegsState[lastI];
+  wdSegsState[lastI] = {to, days:last.days.slice()};
+  wdSegsState.push({to:dim, days:last.days.slice()});
+  renderWdSegs();
+}
+function wdRemoveSeg(i){
+  const dim = wdDim();
+  wdSegsState.splice(i,1);
+  wdSegsState[wdSegsState.length-1].to = dim;
+  renderWdSegs();
+}
 function openWorkDaysModal(){
   const t = teachers.find(x=>x.id===activeTeacherId);
   if(!t) return;
-  const current = getWorkDaysForMonth(t, viewYear, viewMonth);
-  buildWeekdayPickerInto('weekdayPickerMonth', current);
+  const dim = wdDim();
+  const segs = wdSegments(t, viewYear, viewMonth);
+  if(segs){
+    wdSegsState = segs.map((sg,i)=>({to: i<segs.length-1 ? segs[i+1].from-1 : dim, days:(sg.days||[]).slice()}));
+  } else {
+    wdSegsState = [{to:dim, days:getWorkDaysForMonth(t, viewYear, viewMonth).slice()}];
+  }
+  renderWdSegs();
   document.getElementById('workDaysModalSub').textContent = `${t.name} — ${MONTH_NAMES[viewMonth]} ${viewYear}`;
   document.getElementById('workDaysModalOverlay').style.display = 'flex';
 }
@@ -1182,9 +1269,17 @@ function closeWorkDaysModal(){ document.getElementById('workDaysModalOverlay').s
 async function saveWorkDaysModal(){
   const t = teachers.find(x=>x.id===activeTeacherId);
   if(!t) return;
-  const days = Array.from(document.querySelectorAll('#weekdayPickerMonth input:checked')).map(i=>parseInt(i.value));
   if(!t.workDaysHistory) t.workDaysHistory = {};
-  t.workDaysHistory[monthKey(viewYear, viewMonth)] = days;
+  if(!t.workDaysSplits) t.workDaysSplits = {};
+  const key = monthKey(viewYear, viewMonth);
+  const segs = wdSegsState;
+  if(segs.length===1){
+    t.workDaysHistory[key] = segs[0].days.slice().sort((a,b)=>a-b);
+    delete t.workDaysSplits[key];
+  } else {
+    t.workDaysSplits[key] = segs.map((sg,i)=>({from: i===0 ? 1 : segs[i-1].to+1, days:sg.days.slice().sort((a,b)=>a-b)}));
+    t.workDaysHistory[key] = segs[segs.length-1].days.slice().sort((a,b)=>a-b);
+  }
   await saveTeacherToDB(t);
   closeWorkDaysModal();
   renderTeacherList();
@@ -1227,7 +1322,7 @@ function renderCalendar(){
   for(let day=1; day<=daysInMonth; day++){
     const dateObj = new Date(viewYear, viewMonth, day);
     const wd = dateObj.getDay();
-    const isWorkday = workDays.includes(wd);
+    const isWorkday = getWorkDaysForDate(t, viewYear, viewMonth, day).includes(wd);
     const dateStr = `${viewYear}-${pad2(viewMonth+1)}-${pad2(day)}`;
     const rec = absences[dateStr];
     let cls = 'day-cell';
@@ -1257,7 +1352,7 @@ function renderCalendar(){
       </div>`;
   }
 
-  const workdaysLabel = workDays.slice().sort().map(d=>WEEKDAY_NAMES_FULL[d]).join(', ') || 'טרם הוגדרו';
+  const workdaysLabel = wdLabel(t, viewYear, viewMonth, workDays);
 
   let bannerHtml = '';
   if(!hasExact){
@@ -1483,7 +1578,7 @@ async function renderReport(){
     const daysInMonth = new Date(reportYear, reportMonth+1, 0).getDate();
     let workdaysCount = 0;
     for(let day=1; day<=daysInMonth; day++){
-      if(workDays.includes(new Date(reportYear, reportMonth, day).getDay())) workdaysCount++;
+      if(getWorkDaysForDate(t, reportYear, reportMonth, day).includes(new Date(reportYear, reportMonth, day).getDay())) workdaysCount++;
     }
     rows.push({teacher:t, entries, workdaysCount});
   }
@@ -1661,7 +1756,7 @@ async function generateExcel(){
         if(isSat) cell.fill = SAT_FILL;
         if(closures[`${y}-${pad2(m+1)}-${pad2(d)}`]) return;
         if(matStart!==null && d>=matStart && d<=matEnd) return;
-        const isWork = workDays.includes(wd);
+        const isWork = getWorkDaysForDate(t, y, m, d).includes(wd);
         if(!isWork) return;
         const dStr = `${y}-${pad2(m+1)}-${pad2(d)}`;
         const rec = absences[dStr];
@@ -2643,7 +2738,7 @@ async function onSubsFileChosen(){
           else if(incMat && v.replace(/["'״׳]/g,'')==='חלד'){
             const wd = new Date(sm.y, sm.m, d).getDay();
             if(wd===6) continue;
-            if(t && !getWorkDaysForMonth(t, sm.y, sm.m).includes(wd)) continue;
+            if(t && !getWorkDaysForDate(t, sm.y, sm.m, d).includes(wd)) continue;
             reason = 'חל"ד';
           }
           if(!reason) continue;
@@ -2856,6 +2951,7 @@ window.deleteTeacherFromModal = deleteTeacherFromModal;
 window.openWorkDaysModal = openWorkDaysModal;
 window.closeWorkDaysModal = closeWorkDaysModal;
 window.saveWorkDaysModal = saveWorkDaysModal;
+window.wdToggle = wdToggle; window.wdSetTo = wdSetTo; window.wdAddSplit = wdAddSplit; window.wdRemoveSeg = wdRemoveSeg;
 window.chooseCarryForward = chooseCarryForward;
 window.monthShift = monthShift;
 window.openDayModal = openDayModal;

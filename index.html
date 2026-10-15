@@ -379,6 +379,18 @@
   .wd-seg-h{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:0.9rem; }
   .wd-seg-h select{ padding:4px 8px; border-radius:8px; border:1px solid var(--line); font-family:'Assistant',sans-serif; }
   .wd-x{ background:none; border:none; cursor:pointer; color:var(--absence); font-size:1rem; }
+
+  .sub-sched{ background:var(--brand-bg); border-radius:8px; padding:6px 10px; font-size:0.86rem; margin-bottom:8px; color:var(--brand-dark); }
+  .sub-sched.none{ background:var(--muted-bg); color:var(--ink-soft); }
+  .sub-parts{ opacity:0.8; font-size:0.8rem; }
+  .sub-warn{ background:var(--absence-bg); color:var(--absence); border-radius:8px; padding:6px 10px; font-size:0.86rem; margin-bottom:8px; font-weight:600; }
+
+  .sub-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .sub-chip{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:2px 10px; font-size:0.82rem; color:var(--ink-soft); }
+  .sub-chip.fr{ border-color:var(--brand); color:var(--brand-dark); font-weight:600; }
+
+  .sub-tabs{ display:flex; gap:8px; margin-bottom:14px; }
+  .sub-tab.active{ background:var(--brand); color:#fff; border-color:var(--brand); }
 </style>
 </head>
 <body>
@@ -502,6 +514,27 @@
   </div>
 
   <div id="subsArea" style="display:none;">
+    <div class="sub-tabs">
+      <button class="pill-btn sub-tab active" id="subTabReport" onclick="subsSetPane('report')">דיווח מילוי מקום</button>
+      <button class="pill-btn sub-tab" id="subTabSummary" onclick="subsSetPane('summary')">סיכום לפי מורה</button>
+    </div>
+    <div id="subsSummaryPane" style="display:none;">
+      <div class="panel" style="margin-bottom:16px;">
+        <h2 class="rep-h">סיכום שעות מילוי מקום</h2>
+        <div class="hint">מציג את השעות שדווחו למורות כמחליפות. הנתונים נלקחים מכל הדיווחים ששמרת במערכת.</div>
+        <div class="rep-controls">
+          <div class="field-group"><label>מורה</label><select id="sumTeacher" onchange="sumRender()" style="padding:9px 12px; border-radius:8px; border:1px solid var(--line); font-family:'Assistant',sans-serif; background:var(--bg); min-width:220px;"></select></div>
+          <div class="field-group"><label>תקופה</label>
+            <div class="status-options" style="margin:0;"><div class="status-opt cl-sel" id="sumModeMonth" onclick="sumSetMode('month')">חודש</div><div class="status-opt" id="sumModeAll" onclick="sumSetMode('all')">מתחילת הדיווח</div></div>
+          </div>
+          <div class="field-group" id="sumMonthGroup"><label>חודש</label>
+            <div class="month-nav"><button onclick="sumMonthShift(-1)">‹</button><div class="label" id="sumMonthLabel"></div><button onclick="sumMonthShift(1)">›</button></div>
+          </div>
+        </div>
+      </div>
+      <div id="sumResults"></div>
+    </div>
+    <div id="subsReportPane">
     <div class="panel" style="margin-bottom:16px;">
       <h2 class="rep-h">שעות מילוי מקום</h2>
       <div class="hint">מעלים את קובץ האקסל של יומן הנוכחות (הדוח שמורידים מאיזור היומן). המערכת תציג כל יום שבו מורה לא הייתה, ושם ממלאים מי החליפה אותה, כמה שעות ובאיזו כיתה.</div>
@@ -516,10 +549,10 @@
     </div>
     <div id="subsList"></div>
     <div class="panel" id="subsExportBar" style="display:none;">
-      <button class="export-btn" onclick="exportSubsPdf()">הדפסה / שמירה כ-PDF (עם חתימת מנהלת)</button>
-      <button class="export-btn" style="background:#fff; color:var(--brand-dark); border:1px solid var(--brand);" onclick="exportSubs()">הורדה כ-Excel</button>
+      <button class="export-btn" onclick="exportSubs()">הורדת טבלת שעות מילוי מקום (Excel)</button>
       <div class="export-note">עמודות: שם המחליפה, ת.ז., תאריך מילוי מקום, כמה שעות, כיתה, המורה שהוחלפה. ימי חיסור שהוסרו, או שלא נבחרה להם מחליפה, לא ייכללו. המילוי נשמר אוטומטית, ואם תעלי שוב את הקובץ הוא יחזור.</div>
     </div>
+      </div>
   </div>
   <div id="attendanceArea" style="display:none;">
   <div id="calendarTab" class="layout">
@@ -2324,19 +2357,12 @@ function sysDaysFor(t, y, m, from, to){
   const dim = new Date(y,m+1,0).getDate();
   const a = (from.getFullYear()===y && from.getMonth()===m) ? from.getDate() : 1;
   const b = (to.getFullYear()===y && to.getMonth()===m) ? to.getDate() : dim;
-  const segs = wdSegments(t, y, m);
-  let days;
-  if(!segs) days = getWorkDaysForMonth(t, y, m);
-  else {
-    /* איחוד ימי העבודה של כל טווחי הפיצול שנחתכים עם טווח התאריכים של הבלוק (לפי ימי שבוע, לא לפי התאריכים עצמם) */
-    const set = new Set();
-    segs.forEach((sg,i)=>{
-      const s0 = sg.from, s1 = i<segs.length-1 ? segs[i+1].from-1 : dim;
-      if(s0<=b && s1>=a) (sg.days||[]).forEach(d=>set.add(d));
-    });
-    days = [...set];
+  const set = new Set();
+  for(let d=a; d<=b; d++){
+    const wd = new Date(y,m,d).getDay();
+    if(getWorkDaysForDate(t,y,m,d).includes(wd)) set.add(wd);
   }
-  return days.filter(d=>d<=5).sort((x,z)=>x-z);
+  return [...set].filter(d=>d<=5).sort((x,z)=>x-z);
 }
 function sameAmounts(a,b){ return HOUR_ROWS.every(r=>(a[r.key]||0)===(b[r.key]||0)); }
 function buildSysEntries(){
@@ -2706,6 +2732,37 @@ async function loadSubsDoc(){
     subsSaved = s.exists() ? (s.data().entries || {}) : {};
   }catch(e){ console.error('loadSubs', e); }
 }
+let subsRepCache = {};   // {"YYYY-M": entries[] | null} - דוחות מערכת שמורים לפי חודש
+async function loadSubsReports(entries){
+  const keys = [...new Set(entries.map(e=>{ const [y,m] = e.date.split('-').map(Number); return `${y}-${pad2(m)}`; }))];
+  for(const k of keys){
+    if(k in subsRepCache) continue;
+    try{
+      const snap = await getDoc(doc(db,'absences','sysrep-'+k));
+      subsRepCache[k] = snap.exists() ? (snap.data().entries || []) : null;
+    }catch(err){ console.error('subs report load', err); subsRepCache[k] = null; }
+  }
+}
+/* כמה שעות מוגדרות למורה שחסרה באותו יום, לפי דוח המערכת השמור של אותו חודש */
+function subsSched(e){
+  const [y,m,d] = e.date.split('-').map(Number);
+  const list = subsRepCache[`${y}-${pad2(m)}`];
+  if(!list) return {hasReport:false};
+  if(!e.tid) return {hasReport:true, front:0, total:0, parts:{}, found:false};
+  const day = new Date(y,m-1,d).getTime();
+  const wd = new Date(y,m-1,d).getDay();
+  let found = false, front = 0, total = 0, parts = {};
+  for(const en of list){
+    if(en.teacherId!==e.tid) continue;
+    if(en.fromMs>day || en.toMs<day) continue;
+    found = true;
+    HOUR_ROWS.forEach(r=>{
+      const v = ((en.alloc||{})[r.key]||{})[wd] || 0;
+      if(v){ parts[r.label] = (parts[r.label]||0) + v; total += v; if(r.key==='front') front += v; }
+    });
+  }
+  return {hasReport:true, front, total, parts, found};
+}
 function xlCellVal(cell){
   let c = cell;
   if(c && c.isMerged && c.master) c = c.master;
@@ -2776,6 +2833,8 @@ async function onSubsFileChosen(){
       return {...e, del:!!sv.del, subs};
     });
     subsFileName = f.name;
+    st.textContent = 'טוענת את דוחות המערכת...';
+    await loadSubsReports(subsEntries);
     st.textContent = '';
     renderSubs();
   }catch(e){
@@ -2811,6 +2870,18 @@ function renderSubs(){
       <div class="sub-head"><div><b>${escapeHtml(e.name)}</b> <span class="sub-reason">${escapeHtml(e.reason)}</span></div>
       <button class="pill-btn" onclick="subsToggleDel(${i})">${e.del?'↩ שחזור':'🗑 הסרה (לא נדרשה מחליפה)'}</button></div>`;
     if(!e.del){
+      const sc = subsSched(e);
+      const entered = e.subs.reduce((a,x)=>a+(parseFloat(x.hours)||0),0);
+      if(!sc.hasReport){
+        html += `<div class="sub-sched none">אין דוח מערכת שמור לחודש הזה, לכן אי אפשר להציג כמה שעות היו מוגדרות למורה.</div>`;
+      } else {
+        const frontH = sc.front/100;
+        const chips = HOUR_ROWS.map(r=>`<span class="sub-chip${r.key==='front'?' fr':''}">${r.label} <b>${fmtH(sc.parts[r.label]||0)}</b></span>`).join('');
+        html += `<div class="sub-sched">📋 שעות המורה ביום הזה בדוח המערכת (סה"כ <b>${fmtH(sc.total)}</b>):<div class="sub-chips">${chips}</div>${!sc.found ? '<span class="sub-parts">לא נמצאו שעות ליום הזה בדוח</span>' : ''}</div>`;
+        if(entered > frontH + 1e-9){
+          html += `<div class="sub-warn">⚠️ דווחו ${entered} שעות מחליפות, אבל בדוח המערכת מוגדרות למורה ${fmtH(sc.front)} שעות פרונטליות ביום הזה.</div>`;
+        }
+      }
       e.subs.forEach((s,j)=>{
         const st = teachers.find(x=>x.id===s.tid);
         html += `<div class="sub-row">
@@ -2836,7 +2907,7 @@ async function subsToggleDel(i){
 }
 async function subsSet(i,j,k,v){
   const e = subsEntries[i]; e.subs[j][k] = v;
-  if(k==='tid') renderSubs();
+  if(k==='tid' || k==='hours') renderSubs();
   await subsPersist(e);
 }
 async function subsAddRow(i){ const e = subsEntries[i]; e.subs.push({tid:'',hours:'',cls:''}); renderSubs(); }
@@ -2857,9 +2928,17 @@ function subsCollect(){
     if(!any) empty++;
   }
   if(!rows.length){ alert('עוד לא נבחרו מורות מחליפות.'); return null; }
+  let over = 0;
+  for(const e of subsEntries){
+    if(e.del) continue;
+    const sc = subsSched(e); if(!sc.hasReport) continue;
+    const entered = e.subs.filter(x=>x.tid).reduce((a,x)=>a+(parseFloat(x.hours)||0),0);
+    if(entered > sc.front/100 + 1e-9) over++;
+  }
   let msg = '';
   if(empty) msg += `ל-${empty} ימי חיסור לא נבחרה מחליפה, והם לא ייכללו בקובץ.\n`;
   if(incomplete) msg += `ב-${incomplete} שורות לא הוזנו שעות.\n`;
+  if(over) msg += `ב-${over} ימי חיסור דווחו יותר שעות מחליפות ממה שמוגדר למורה בדוח המערכת.\n`;
   if(msg && !confirm(msg+'להמשיך בהורדה?')) return null;
   rows.sort((a,b)=> a.date<b.date?-1: a.date>b.date?1: a.sub.localeCompare(b.sub,'he'));
   return rows;
@@ -2959,6 +3038,92 @@ async function exportSubs(){
   setTimeout(()=>URL.revokeObjectURL(url), 2000);
 }
 
+/* ================= סיכום שעות מילוי מקום לפי מורה ================= */
+let subsPane = 'report', sumMode = 'month', sumY = new Date().getFullYear(), sumM = new Date().getMonth();
+function fmtN(v){ return String(Math.round(v*100)/100); }
+function subsSetPane(p){
+  subsPane = p;
+  document.getElementById('subsReportPane').style.display = p==='report' ? 'block' : 'none';
+  document.getElementById('subsSummaryPane').style.display = p==='summary' ? 'block' : 'none';
+  document.getElementById('subTabReport').classList.toggle('active', p==='report');
+  document.getElementById('subTabSummary').classList.toggle('active', p==='summary');
+  if(p==='summary'){
+    const sel = document.getElementById('sumTeacher');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">כל המורות</option>' + teachers.slice().sort((a,b)=>a.name.localeCompare(b.name,'he')).map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+    sel.value = cur;
+    sumRender();
+  }
+}
+function sumSetMode(m){
+  sumMode = m;
+  document.getElementById('sumModeMonth').classList.toggle('cl-sel', m==='month');
+  document.getElementById('sumModeAll').classList.toggle('cl-sel', m==='all');
+  document.getElementById('sumMonthGroup').style.display = m==='month' ? '' : 'none';
+  sumRender();
+}
+function sumMonthShift(d){
+  sumM += d;
+  if(sumM<0){ sumM = 11; sumY--; }
+  if(sumM>11){ sumM = 0; sumY++; }
+  sumRender();
+}
+function subsAggregate(){
+  const out = [];
+  for(const [key, e] of Object.entries(subsSaved)){
+    if(e.del) continue;
+    const u = key.lastIndexOf('_');
+    const absId = key.slice(0,u), date = key.slice(u+1);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    for(const s of (e.subs||[])){
+      const h = parseFloat(s.hours);
+      if(!s.tid || !(h>0)) continue;
+      out.push({sub:s.tid, date, hours:h, cls:s.cls||'', absId});
+    }
+  }
+  return out;
+}
+function tName(id){ const t = teachers.find(x=>x.id===id); return t ? t.name : (id && !id.startsWith('n') ? 'מורה שנמחקה' : '—'); }
+function sumRender(){
+  document.getElementById('sumMonthLabel').textContent = `${MONTH_NAMES[sumM]} ${sumY}`;
+  const tid = document.getElementById('sumTeacher').value;
+  const prefix = `${sumY}-${pad2(sumM+1)}-`;
+  let rows = subsAggregate();
+  if(tid) rows = rows.filter(r=>r.sub===tid);
+  if(sumMode==='month') rows = rows.filter(r=>r.date.startsWith(prefix));
+  rows.sort((a,b)=> a.date<b.date?-1: a.date>b.date?1: 0);
+  const total = rows.reduce((s,r)=>s+r.hours,0);
+  const days = new Set(rows.map(r=>r.sub+'|'+r.date)).size;
+  const box = document.getElementById('sumResults');
+  const period = sumMode==='month' ? `ב${MONTH_NAMES[sumM]} ${sumY}` : 'מתחילת הדיווח';
+  let html = '';
+  if(!rows.length){
+    box.innerHTML = `<div class="sys-box info">לא דווחו שעות מילוי מקום ${tid ? 'למורה הזאת ' : ''}${period}.</div>`;
+    return;
+  }
+  html += `<div class="sys-box info" style="font-size:1rem;">${tid ? '<b>'+escapeHtml(tName(tid))+'</b> · ' : ''}סה"כ <b>${fmtN(total)}</b> שעות מילוי מקום ${period} · ${days} ימים</div>`;
+  const th = cols => `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>`;
+  const td = cols => `<tr>${cols.map(c=>`<td>${c}</td>`).join('')}</tr>`;
+  html += '<div class="panel" style="overflow-x:auto;"><table class="report-table"><thead>';
+  if(tid && sumMode==='month'){
+    html += th(['תאריך','שעות','כיתה','המורה שהוחלפה'])+'</thead><tbody>';
+    rows.forEach(r=>{ html += td([fmtDMY(r.date), fmtN(r.hours), escapeHtml(r.cls), escapeHtml(tName(r.absId))]); });
+  } else if(tid){
+    const by = {};
+    rows.forEach(r=>{ const k = r.date.slice(0,7); (by[k] = by[k] || {h:0,d:new Set()}); by[k].h += r.hours; by[k].d.add(r.date); });
+    html += th(['חודש','ימים','שעות'])+'</thead><tbody>';
+    Object.keys(by).sort().forEach(k=>{ const [y,m] = k.split('-').map(Number); html += td([MONTH_NAMES[m-1]+' '+y, by[k].d.size, fmtN(by[k].h)]); });
+  } else {
+    const by = {};
+    rows.forEach(r=>{ (by[r.sub] = by[r.sub] || {h:0,d:new Set()}); by[r.sub].h += r.hours; by[r.sub].d.add(r.date); });
+    html += th(['מורה מחליפה','ימים','שעות'])+'</thead><tbody>';
+    Object.entries(by).sort((a,b)=>b[1].h-a[1].h).forEach(([id,v])=>{ html += td([escapeHtml(tName(id)), v.d.size, fmtN(v.h)]); });
+  }
+  html += `<tr class="tot"><td>סה"כ</td>${tid && sumMode==='month' ? '' : '<td>'+days+'</td>'}<td>${fmtN(total)}</td>${tid && sumMode==='month' ? '<td></td><td></td>' : ''}</tr>`;
+  html += '</tbody></table></div>';
+  box.innerHTML = html;
+}
+
 
 /* ---------- expose to window for inline handlers ---------- */
 window.switchTab = switchTab;
@@ -3028,6 +3193,10 @@ window.subsAddRow = subsAddRow;
 window.subsDelRow = subsDelRow;
 window.exportSubs = exportSubs;
 window.exportSubsPdf = exportSubsPdf;
+window.subsSetPane = subsSetPane;
+window.sumSetMode = sumSetMode;
+window.sumMonthShift = sumMonthShift;
+window.sumRender = sumRender;
 </script>
 <script>
 if("serviceWorker" in navigator){ window.addEventListener("load", function(){ navigator.serviceWorker.register("service-worker.js").catch(function(e){ console.warn("SW", e); }); }); }

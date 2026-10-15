@@ -2360,13 +2360,19 @@ async function onSysPdfChosen(){
 
 /* ימי העבודה של המורה בתוך טווח התאריכים של הבלוק (מתחשב בפיצול ימי עבודה בתוך החודש) */
 function sysDaysFor(t, y, m, from, to){
+  /* לפי המבנה השבועי: איחוד ימי העבודה של כל קטע-פיצול שחופף לטווח הבלוק (בלי בדיקה אם היום באמת קיים בתאריכים) */
   const dim = new Date(y,m+1,0).getDate();
   const a = (from.getFullYear()===y && from.getMonth()===m) ? from.getDate() : 1;
   const b = (to.getFullYear()===y && to.getMonth()===m) ? to.getDate() : dim;
   const set = new Set();
-  for(let d=a; d<=b; d++){
-    const wd = new Date(y,m,d).getDay();
-    if(getWorkDaysForDate(t,y,m,d).includes(wd)) set.add(wd);
+  const segs = wdSegments(t, y, m);
+  if(segs){
+    for(let i=0;i<segs.length;i++){
+      const s0 = segs[i].from, e0 = (i+1<segs.length) ? segs[i+1].from-1 : dim;
+      if(s0<=b && e0>=a) (segs[i].days||[]).forEach(d=>set.add(d));
+    }
+  } else {
+    getWorkDaysForMonth(t,y,m).forEach(d=>set.add(d));
   }
   return [...set].filter(d=>d<=5).sort((x,z)=>x-z);
 }
@@ -2950,7 +2956,7 @@ function renderSubs(){
       <button class="pill-btn" onclick="subsToggleDel(${i})">${e.del?'↩ שחזור':'🗑 הסרה (לא נדרשה מחליפה)'}</button></div>`;
     if(!e.del){
       const sc = subsSched(e);
-      const entered = e.subs.reduce((a,x)=>a+(parseFloat(x.hours)||0),0);
+      const entered = Math.round(e.subs.reduce((a,x)=>a+(parseFloat(x.hours)||0),0)*100)/100;
       if(!sc.hasReport){
         html += `<div class="sub-sched none">אין דוח מערכת שמור לחודש הזה, לכן אי אפשר להציג כמה שעות היו מוגדרות למורה.</div>`;
       } else {
@@ -3011,7 +3017,7 @@ function subsCollect(){
   for(const e of subsEntries){
     if(e.del) continue;
     const sc = subsSched(e); if(!sc.hasReport) continue;
-    const entered = e.subs.filter(x=>x.tid).reduce((a,x)=>a+(parseFloat(x.hours)||0),0);
+    const entered = Math.round(e.subs.filter(x=>x.tid).reduce((a,x)=>a+(parseFloat(x.hours)||0),0)*100)/100;
     if(entered > sc.front/100 + 1e-9) over++;
   }
   let msg = '';
@@ -3034,7 +3040,7 @@ function subsFileTitle(rows){
 }
 function exportSubsPdf(){
   const rows = subsCollect(); if(!rows) return;
-  const total = rows.reduce((s,r)=> s + (parseFloat(r.hours)||0), 0);
+  const total = Math.round(rows.reduce((s,r)=> s + (parseFloat(r.hours)||0), 0)*100)/100;
   const AREA = 213, ROW = 7.5, HEAD = 8, TITLE = 17, SIGN = 42;
   const head = '<tr class="h"><th style="width:22%">שם המורה (המחליפה)</th><th style="width:13%">ת.ז.</th><th style="width:19%">תאריך מילוי מקום</th><th style="width:12%">כמה שעות</th><th style="width:8%">כיתה</th><th style="width:27%">המורה שהוחלפה</th></tr>';
   const rowHtml = r=>`<tr><td>${escapeHtml(r.sub)}</td><td>${escapeHtml(r.id)}</td><td>${fmtDMY(r.date)}</td><td>${escapeHtml(String(r.hours))}</td><td>${escapeHtml(r.cls)}</td><td>${escapeHtml(r.repl)}</td></tr>`;
@@ -3171,7 +3177,7 @@ function sumRender(){
   if(tid) rows = rows.filter(r=>r.sub===tid);
   if(sumMode==='month') rows = rows.filter(r=>r.date.startsWith(prefix));
   rows.sort((a,b)=> a.date<b.date?-1: a.date>b.date?1: 0);
-  const total = rows.reduce((s,r)=>s+r.hours,0);
+  const total = Math.round(rows.reduce((s,r)=>s+r.hours,0)*100)/100;
   const days = new Set(rows.map(r=>r.sub+'|'+r.date)).size;
   const box = document.getElementById('sumResults');
   const period = sumMode==='month' ? `ב${MONTH_NAMES[sumM]} ${sumY}` : 'מתחילת הדיווח';

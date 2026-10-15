@@ -547,9 +547,15 @@
       </div>
       <div id="subsStatus" class="hint"></div>
     </div>
+    <div class="panel" style="margin-bottom:16px;">
+      <h2 class="rep-h">🗂️ חודשים שמורים</h2>
+      <div class="hint">כל קובץ שמועלה נשמר כאן לפי חודש, יחד עם מה שמילאת. אפשר לפתוח חודש קודם, להמשיך למלא ולהוריד ממנו שוב PDF או Excel בלי להעלות את הקובץ מחדש.</div>
+      <div id="subsMonthsList"></div>
+    </div>
     <div id="subsList"></div>
     <div class="panel" id="subsExportBar" style="display:none;">
-      <button class="export-btn" onclick="exportSubs()">הורדת טבלת שעות מילוי מקום (Excel)</button>
+      <button class="export-btn" onclick="exportSubsPdf()">הדפסה / שמירה כ-PDF (עם חתימת מנהלת)</button>
+      <button class="export-btn" style="background:#fff; color:var(--brand-dark); border:1px solid var(--brand);" onclick="exportSubs()">הורדה כ-Excel</button>
       <div class="export-note">עמודות: שם המחליפה, ת.ז., תאריך מילוי מקום, כמה שעות, כיתה, המורה שהוחלפה. ימי חיסור שהוסרו, או שלא נבחרה להם מחליפה, לא ייכללו. המילוי נשמר אוטומטית, ואם תעלי שוב את הקובץ הוא יחזור.</div>
     </div>
       </div>
@@ -2723,6 +2729,9 @@ let subsFileName = '';
 const SUBS_LETTERS = {'ה':'העדרות','מ':'מחלה','צ':'הצהרה','ח':'חופשה'};
 const WD_LETTERS = ['א','ב','ג','ד','ה','ו','ש'];
 
+let subsMonthIndex = [];   // [{id,year,month,count,savedAt,fileName}]
+let subsOpenId = null;
+async function saveMonthIndex(){ await setDoc(doc(db,'absences','cfg-subs-months'), {list: subsMonthIndex}); }
 async function saveSubsDoc(){
   await setDoc(doc(db,'absences','cfg-subs'), {entries: subsSaved});
 }
@@ -2731,6 +2740,10 @@ async function loadSubsDoc(){
     const s = await getDoc(doc(db,'absences','cfg-subs'));
     subsSaved = s.exists() ? (s.data().entries || {}) : {};
   }catch(e){ console.error('loadSubs', e); }
+  try{
+    const s2 = await getDoc(doc(db,'absences','cfg-subs-months'));
+    subsMonthIndex = s2.exists() ? (s2.data().list || []) : [];
+  }catch(e){ console.error('loadSubs months', e); }
 }
 let subsRepCache = {};   // {"YYYY-M": entries[] | null} - דוחות מערכת שמורים לפי חודש
 async function loadSubsReports(entries){
@@ -2827,11 +2840,8 @@ async function onSubsFileChosen(){
     });
     if(!sheets){ st.textContent = 'לא זוהו בקובץ גיליונות של דוח נוכחות. יש להעלות אקסל שהופק מאיזור יומן הנוכחות.'; return; }
     out.sort((a,b)=> a.date<b.date?-1: a.date>b.date?1: a.name.localeCompare(b.name,'he'));
-    subsEntries = out.map(e=>{
-      const sv = subsSaved[e.key] || {};
-      const subs = (sv.subs && sv.subs.length) ? sv.subs.map(s=>({...s})) : [{tid:'',hours:'',cls:''}];
-      return {...e, del:!!sv.del, subs};
-    });
+    const merged = await saveSubsMonths(out, f.name);
+    subsEntries = merged.map(e=>subsMakeEntry(e));
     subsFileName = f.name;
     st.textContent = 'טוענת את דוחות המערכת...';
     await loadSubsReports(subsEntries);
@@ -2843,6 +2853,74 @@ async function onSubsFileChosen(){
   }
   inp.value = '';
 }
+function subsMakeEntry(e){
+  const sv = subsSaved[e.key] || {};
+  const subs = (sv.subs && sv.subs.length) ? sv.subs.map(s=>({...s})) : [{tid:'',hours:'',cls:''}];
+  return {...e, del:!!sv.del, subs};
+}
+function subsMonthId(y,m){ return `subsmonth-${y}-${pad2(m)}`; }
+/* שומר את ימי החיסור לפי חודש (איחוד עם מה ששמור כבר, כדי לא לאבד נתונים). מחזיר את כל הימים של החודשים שבקובץ */
+async function saveSubsMonths(out, fileName){
+  const by = {};
+  out.forEach(e=>{ const [y,m] = e.date.split('-').map(Number); (by[y+'-'+m] = by[y+'-'+m] || {y,m,list:[]}).list.push(e); });
+  let all = [];
+  for(const g of Object.values(by)){
+    const id = subsMonthId(g.y,g.m);
+    let existing = [];
+    try{ const sn = await getDoc(doc(db,'absences',id)); if(sn.exists()) existing = sn.data().entries || []; }catch(err){ console.error(err); }
+    const map = new Map(existing.map(e=>[e.key,e]));
+    g.list.forEach(e=>map.set(e.key,e));
+    const entries = [...map.values()].sort((a,b)=> a.date<b.date?-1: a.date>b.date?1: a.name.localeCompare(b.name,'he'));
+    const savedAt = Date.now();
+    try{
+      await setDoc(doc(db,'absences',id), {year:g.y, month:g.m, savedAt, fileName, entries});
+      subsMonthIndex = subsMonthIndex.filter(x=>x.id!==id).concat([{id, year:g.y, month:g.m, count:entries.length, savedAt, fileName}]);
+    }catch(err){ console.error(err); alert('שגיאה בשמירת החודש. נסי שוב.'); }
+    all = all.concat(entries);
+  }
+  try{ await saveMonthIndex(); }catch(err){ console.error(err); }
+  return all;
+}
+function renderSubsMonths(){
+  const el = document.getElementById('subsMonthsList');
+  if(!el) return;
+  const list = subsMonthIndex.slice().sort((a,b)=>(b.year*12+b.month)-(a.year*12+a.month));
+  el.innerHTML = list.length ? list.map(r=>{
+    const d = new Date(r.savedAt);
+    return `<div class="cl-item"><div class="cl-txt"><b>${MONTH_NAMES[r.month-1]} ${r.year}</b> · ${r.count} ימי חיסור · עודכן ${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()}${r.id===subsOpenId?' · <span style="color:var(--brand);font-weight:700;">פתוח</span>':''}</div>
+      <button class="pill-btn" onclick="openSubsMonth('${r.id}')">פתיחה</button>
+      <button title="מחיקה" onclick="deleteSubsMonth('${r.id}')">🗑️</button></div>`;
+  }).join('') : '<div class="hint">עדיין אין חודשים שמורים. כל קובץ שתעלי יישמר כאן אוטומטית.</div>';
+}
+async function openSubsMonth(id){
+  try{
+    const sn = await getDoc(doc(db,'absences',id));
+    if(!sn.exists()){ alert('החודש לא נמצא'); return; }
+    const d = sn.data();
+    subsEntries = (d.entries||[]).map(e=>subsMakeEntry(e));
+    subsFileName = `${MONTH_NAMES[d.month-1]} ${d.year}`;
+    subsOpenId = id;
+    await loadSubsReports(subsEntries);
+    document.getElementById('subsStatus').textContent = '';
+    renderSubs();
+    window.scrollTo({top: document.getElementById('subsList').offsetTop - 20, behavior:'smooth'});
+  }catch(err){ console.error(err); alert('שגיאה בפתיחת החודש'); }
+}
+async function deleteSubsMonth(id){
+  const r = subsMonthIndex.find(x=>x.id===id); if(!r) return;
+  if(!confirm(`למחוק את ${MONTH_NAMES[r.month-1]} ${r.year}? זה ימחק גם את כל מה שמילאת בו (מחליפות, שעות וכיתות), והן לא ייספרו יותר בסיכום.`)) return;
+  try{
+    const sn = await getDoc(doc(db,'absences',id));
+    const prefix = `${r.year}-${pad2(r.month)}-`;
+    Object.keys(subsSaved).forEach(k=>{ if(k.slice(k.lastIndexOf('_')+1).startsWith(prefix)) delete subsSaved[k]; });
+    await saveSubsDoc();
+    await deleteDoc(doc(db,'absences',id));
+    subsMonthIndex = subsMonthIndex.filter(x=>x.id!==id);
+    await saveMonthIndex();
+  }catch(err){ console.error(err); alert('שגיאה במחיקה'); return; }
+  if(subsOpenId===id){ subsOpenId = null; subsEntries = []; subsFileName = ''; }
+  renderSubs();
+}
 function subsPersist(e){
   const hasData = e.del || e.subs.some(s=>s.tid||s.hours||s.cls);
   if(hasData) subsSaved[e.key] = {del:e.del, subs:e.subs.map(s=>({tid:s.tid||'',hours:s.hours||'',cls:s.cls||''}))};
@@ -2851,6 +2929,7 @@ function subsPersist(e){
 }
 function fmtDMY(ds){ const [y,m,d]=ds.split('-'); return `${d}/${m}/${y}`; }
 function renderSubs(){
+  renderSubsMonths();
   const box = document.getElementById('subsList');
   if(!subsEntries.length && !subsFileName){ box.innerHTML = ''; document.getElementById('subsExportBar').style.display='none'; return; }
   const vis = subsEntries.filter(e=>!e.del || subsShowDeleted);
@@ -3194,6 +3273,8 @@ window.subsDelRow = subsDelRow;
 window.exportSubs = exportSubs;
 window.exportSubsPdf = exportSubsPdf;
 window.subsSetPane = subsSetPane;
+window.openSubsMonth = openSubsMonth;
+window.deleteSubsMonth = deleteSubsMonth;
 window.sumSetMode = sumSetMode;
 window.sumMonthShift = sumMonthShift;
 window.sumRender = sumRender;

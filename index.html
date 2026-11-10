@@ -490,6 +490,27 @@
       </div>
     </div>
 
+    <div class="panel" style="margin-bottom:16px;" id="schedPanel">
+      <h2 class="rep-h">🗓️ מערכת שעות (שעות פרונטליות לפי ימים)</h2>
+      <div class="hint">מעלים את קובץ ה-PDF של מערכת השעות של המורות. כל שעה משובצת נחשבת שעה פרונטלית. החלוקה האוטומטית בדוח המערכת תשבץ את השעות הפרונטליות לפי הימים והכמויות שבמערכת השעות. מורות שאין להן שעות במערכת השעות (למשל מחנכות) מחולקות כרגיל, ובכל מקרה למורה שעובדת ביום שישי תשובץ שעה פרונטלית אחת לפחות.</div>
+      <div class="rep-controls">
+        <div class="field-group">
+          <label>קובץ PDF של מערכת השעות</label>
+          <input type="file" id="schedPdfInput" accept="application/pdf,.pdf" onchange="onSchedPdfChosen()">
+        </div>
+        <div class="field-group">
+          <label>תקף מחודש (דוחות מחודש זה ואילך)</label>
+          <div class="month-nav">
+            <button onclick="schedFromShift(-1)">‹</button>
+            <div class="label" id="schedFromLabel"></div>
+            <button onclick="schedFromShift(1)">›</button>
+          </div>
+        </div>
+      </div>
+      <div id="schedStatus" class="hint"></div>
+      <div id="schedList"></div>
+    </div>
+
     <div class="panel" style="margin-bottom:16px;">
       <h2 class="rep-h">🗂️ דוחות שמורים</h2>
       <div class="hint">כל דוח עירייה שמועלה נשמר כאן לפי חודש. אפשר לפתוח דוח ישן ולראות את החלוקה כפי שהייתה, כולל ימי העבודה של אותו חודש, ולהוריד ממנו אקסל שוב.</div>
@@ -1962,6 +1983,7 @@ async function loadConfig(){
     closures = s.exists() ? (s.data().days || {}) : {};
   }catch(e){ console.error('loadConfig closures', e); }
   await loadSubsDoc();
+  await loadScheduleDoc();
   try{
     const s = await getDoc(doc(db,'absences','cfg-reports'));
     sysReportIndex = s.exists() ? (s.data().list || []) : [];
@@ -2112,7 +2134,7 @@ function splitPieces(a, chunk){
 }
 
 /* amounts: {front, role, edu, bagrut, priv, supp} ביחידות 1/100 שעה; days: מערך ימי עבודה (0=א ... 5=ו) */
-function distributeHours(amounts, days){
+function distributeHours(amounts, days, plan){
   const alloc = {}; HOUR_ROWS.forEach(r=>{ alloc[r.key] = {}; });
   const warnings = [];
   const n = days.length;
@@ -2122,10 +2144,13 @@ function distributeHours(amounts, days){
   const load = {}; days.forEach(d=>{ load[d]=0; });
   const add = (key,d,u)=>{ alloc[key][d] = (alloc[key][d]||0) + u; load[d] += u; };
   let unalloc = 0;
+  /* plan: חלוקה קבועה של השעות הפרונטליות לפי מערכת השעות {יום: יחידות} */
+  if(plan){ Object.keys(plan).forEach(k=>{ const d=+k; if(days.includes(d) && plan[k]>0){ alloc.front[d]=plan[k]; load[d]+=plan[k]; } }); }
 
   HOUR_ROWS.forEach(r=>{
     const a = amounts[r.key]||0;
     if(a<=0) return;
+    if(plan && r.key==='front') return;
     const ideal = Math.max(100, Math.min(r.ideal, Math.ceil(total/n)));
     const k = Math.min(n, Math.max(1, Math.ceil(a/ideal)));
     const order = days.slice().sort((x,y)=> (load[x]-load[y]) || (days.indexOf(x)-days.indexOf(y)));
@@ -2155,12 +2180,29 @@ function distributeHours(amounts, days){
     let best = null;
     for(const r of HOUR_ROWS) for(const d of days){
       const v = alloc[r.key][d]||0;
-      if(v>=20 && (r.key!=='front' || v>=200) && (!best || v>best.v || (v===best.v && load[d]>load[best.d]))) best = {key:r.key, d, v};
+      if(v>=20 && (r.key!=='front' || (!plan && v>=200)) && (!best || v>best.v || (v===best.v && load[d]>load[best.d]))) best = {key:r.key, d, v};
     }
     if(!best) break;
     const mv = best.key==='front' ? Math.min(100, Math.floor(best.v/2/100)*100) : Math.min(CHUNK, Math.floor(best.v/2/10)*10);
     alloc[best.key][best.d] -= mv; load[best.d] -= mv;
     add(best.key, empty[0], mv);
+  }
+  /* מורה שעובדת ביום שישי: לפחות שעה פרונטלית אחת בשישי (כשאין חלוקה לפי מערכת שעות) */
+  if(!plan && days.includes(5) && (amounts.front||0)>=100 && !((alloc.front[5]||0)>0)){
+    const donors = days.filter(d=>d!==5 && (alloc.front[d]||0)>=200).sort((x,y)=>(alloc.front[y]||0)-(alloc.front[x]||0));
+    if(donors.length){
+      const dn = donors[0];
+      alloc.front[dn] -= 100; load[dn] -= 100;
+      alloc.front[5] = (alloc.front[5]||0) + 100; load[5] += 100;
+      if(load[5]>DAY_CAP){
+        let need = load[5]-DAY_CAP;
+        for(const r of HOUR_ROWS){
+          if(r.key==='front' || need<=0) continue;
+          const v = alloc[r.key][5]||0, mv = Math.min(v, need);
+          if(mv>0){ alloc[r.key][5] = v-mv; if(alloc[r.key][5]<=0) delete alloc[r.key][5]; alloc[r.key][dn] = (alloc[r.key][dn]||0)+mv; load[5]-=mv; load[dn]+=mv; need-=mv; }
+        }
+      }
+    }
   }
   days.forEach(d=>{ if(load[d]===0) warnings.push('אין מספיק שעות כדי לכסות את כל ימי העבודה.'); });
   if(unalloc>0) warnings.push('לא ניתן היה לשבץ '+fmtH(unalloc)+' שעות בלי לחרוג מ-9 שעות ביום.');
@@ -2183,6 +2225,161 @@ function validateAlloc(amounts, days, alloc){
   const fr = Object.values(alloc.front||{}).filter(v=>v%100!==0).length;
   if(fr>1) w.push('פרונטלי: יותר מיום אחד עם שעות לא שלמות');
   return w;
+}
+
+/* ================= מערכת שעות: שעות פרונטליות לפי ימים ================= */
+let sysSchedule = null;   // {fromYM, byId:{מספר ת.ז.:{יום:כמות שעות}}, names, fileName, savedAt}
+const ymKey = (y,m)=> `${y}-${pad2(m+1)}`;
+async function loadScheduleDoc(){
+  try{ const sn = await getDoc(doc(db,'absences','cfg-schedule')); sysSchedule = sn.exists() ? sn.data() : null; }
+  catch(e){ console.error('loadSchedule', e); }
+}
+async function saveScheduleDoc(){ await setDoc(doc(db,'absences','cfg-schedule'), sysSchedule); }
+function schedFor(t){
+  if(!sysSchedule || !t) return null;
+  const c = (sysSchedule.byId||{})[normId(t.idNumber)];
+  return (c && Object.keys(c).length) ? c : null;
+}
+function schedApplies(y,m){ return !!sysSchedule && ymKey(y,m) >= (sysSchedule.fromYM||'0000-00'); }
+/* חלוקת השעות הפרונטליות לימים לפי מערכת השעות. מחזיר {days, plan, schedTotal} */
+function sysPlanFor(t, amounts, y, m, baseDays){
+  const c = schedApplies(y,m) ? schedFor(t) : null;
+  if(!c || !((amounts.front||0)>0)) return {days:baseDays, plan:null};
+  const sd = Object.keys(c).map(Number).filter(d=>d>=0 && d<=5 && c[d]>0).sort((a,b)=>a-b);
+  if(!sd.length) return {days:baseDays, plan:null};
+  const a = amounts.front, sumC = sd.reduce((x,d)=>x+c[d],0);
+  const plan = {}; sd.forEach(d=>{ plan[d]=0; });
+  if(a === sumC*100){ sd.forEach(d=>{ plan[d] = c[d]*100; }); }
+  else {
+    const intH = Math.floor(a/100), rem = a - intH*100;
+    const q = sd.map(d=>({d, v:intH*c[d]/sumC}));
+    q.forEach(o=>{ plan[o.d] = Math.floor(o.v)*100; o.f = o.v - Math.floor(o.v); });
+    const left = intH - q.reduce((x,o)=>x+Math.floor(o.v),0);
+    q.sort((x,y)=> (y.f-x.f) || (c[y.d]-c[x.d]) || (x.d-y.d));
+    for(let i=0;i<left;i++) plan[q[i%q.length].d] += 100;
+    if(rem>0){ const big = sd.slice().sort((x,y)=> (plan[y]-plan[x]) || (x-y))[0]; plan[big] += rem; }
+  }
+  /* יום שחורג מ-9 שעות: מעבירים את העודף לימי עבודה אחרים שיש בהם מקום */
+  let over = 0;
+  Object.keys(plan).forEach(k=>{ if(plan[k]>DAY_CAP){ over += plan[k]-DAY_CAP; plan[k] = DAY_CAP; } });
+  const pool = [...new Set([...baseDays, ...Object.keys(plan).map(Number)])].sort((x,y)=>x-y);
+  while(over>0){
+    const cand = pool.filter(d=>(plan[d]||0)<DAY_CAP).sort((x,y)=>(plan[x]||0)-(plan[y]||0));
+    if(!cand.length) break;
+    const d = cand[0], mv = Math.min(over, DAY_CAP-(plan[d]||0), 100);
+    plan[d] = (plan[d]||0)+mv; over -= mv;
+  }
+  Object.keys(plan).forEach(k=>{ if(!plan[k]) delete plan[k]; });
+  const days = [...new Set([...baseDays, ...Object.keys(plan).map(Number)])].sort((x,y)=>x-y);
+  return {days, plan, schedTotal:sumC*100};
+}
+/* items: [{s,x,xMax,y,h}] ; y מלמעלה (קו בסיס). מחזיר {id,name,days:{0..5:count}} או null */
+function parseScheduleItems(items){
+  const BOUNDS = [505.44,434.88,364.32,293.76,223.2,152.64,82.08]; // א..ו (ימין לשמאל)
+  const idIt = items.find(i=>i.y<110 && /^\d{7,9}$/.test(i.s));
+  if(!idIt) return null;
+  const line = items.filter(i=>Math.abs(i.y-idIt.y)<3 && i.s!==idIt.s).sort((a,b)=>b.x-a.x);
+  let nameTxt = '', prevX = null;
+  line.forEach(i=>{ if(prevX!==null && prevX-i.xMax>2.2) nameTxt += ' '; nameTxt += i.s; prevX = i.x; });
+  const nm = nameTxt.match(/שם מורה:?\s*(.+?)\s*ת\.?ז/);
+  const idm = [idIt.s];
+  const labels = items.filter(i=>i.x>505 && /^\d$/.test(i.s) && i.y>160).sort((a,b)=>a.y-b.y);
+  const days = {};
+  if(labels.length){
+    const cy = it => it.y - (it.h||8)*0.3;
+    const cent = labels.map(l=>({y:cy(l), h:+l.s}));
+    const mids = []; for(let i=0;i<cent.length-1;i++) mids.push((cent[i].y+cent[i+1].y)/2);
+    const rowOf = y => { for(let i=0;i<mids.length;i++) if(y<mids[i]) return cent[i].h; return cent[cent.length-1].h; };
+    const top = labels[0].y - 12, bottom = labels[labels.length-1].y + 22;
+    const cells = {0:new Set(),1:new Set(),2:new Set(),3:new Set(),4:new Set(),5:new Set()};
+    items.forEach(it=>{
+      if(it.y<top || it.y>bottom || it.xMax>510) return;
+      const x = (it.x+it.xMax)/2;
+      for(let d=0; d<6; d++) if(x>=BOUNDS[d+1] && x<BOUNDS[d]){ cells[d].add(rowOf(cy(it))); break; }
+    });
+    for(let d=0; d<6; d++) if(cells[d].size) days[d] = cells[d].size;
+  }
+  return {id:idm[0], name:nm ? nm[1].trim() : '', days};
+}
+
+
+async function onSchedPdfChosen(){
+  const f = document.getElementById('schedPdfInput').files[0];
+  if(!f) return;
+  const st = document.getElementById('schedStatus');
+  st.textContent = 'קורא את מערכת השעות...';
+  try{
+    if(!window.pdfjsLib) throw new Error('pdfjs not loaded');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const buf = await f.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
+    const byId = {}, names = {};
+    let pages = 0;
+    for(let p=1; p<=pdf.numPages; p++){
+      const page = await pdf.getPage(p);
+      const vp = page.getViewport({scale:1});
+      const tc = await page.getTextContent();
+      const items = [];
+      tc.items.forEach(i=>{
+        const s = (i.str||'').trim();
+        if(!s) return;
+        items.push({s, x:i.transform[4], xMax:i.transform[4]+i.width, y:vp.height-i.transform[5], h:i.height});
+      });
+      const r = parseScheduleItems(items);
+      if(!r) continue;
+      pages++;
+      const id = normId(r.id);
+      byId[id] = r.days; names[id] = r.name;
+    }
+    if(!pages){ st.innerHTML = '<span style="color:var(--absence)">לא נמצאו מערכות שעות של מורות בקובץ. נא לוודא שזה קובץ מערכת השעות.</span>'; return; }
+    sysSchedule = {fromYM:(sysSchedule && sysSchedule.fromYM) || ymKey(today.getFullYear(), today.getMonth()), byId, names, fileName:f.name, savedAt:Date.now()};
+    await saveScheduleDoc();
+    document.getElementById('schedPdfInput').value = '';
+    renderSchedPanel();
+    st.textContent = `נקראו ${pages} מורות. מערכת השעות נשמרה.`;
+  }catch(e){
+    console.error(e);
+    st.innerHTML = '<span style="color:var(--absence)">שגיאה בקריאת הקובץ או בשמירה. נסי שוב.</span>';
+  }
+}
+async function schedFromShift(d){
+  if(!sysSchedule) return;
+  let [y,m] = (sysSchedule.fromYM||ymKey(today.getFullYear(), today.getMonth())).split('-').map(Number); m--;
+  m += d; if(m<0){ m=11; y--; } if(m>11){ m=0; y++; }
+  sysSchedule.fromYM = ymKey(y,m);
+  renderSchedPanel();
+  try{ await saveScheduleDoc(); }catch(e){ console.error(e); }
+}
+function renderSchedPanel(){
+  const lab = document.getElementById('schedFromLabel'); if(!lab) return;
+  const st = document.getElementById('schedStatus'), list = document.getElementById('schedList');
+  if(!sysSchedule){ lab.textContent = '—'; list.innerHTML = ''; if(!st.textContent) st.textContent = 'עדיין לא הועלתה מערכת שעות.'; return; }
+  const [fy,fm] = (sysSchedule.fromYM||ymKey(today.getFullYear(), today.getMonth())).split('-').map(Number);
+  lab.textContent = `${MONTH_NAMES[fm-1]} ${fy}`;
+  const ids = Object.keys(sysSchedule.byId||{});
+  const withHours = ids.filter(id=>Object.keys(sysSchedule.byId[id]).length);
+  const when = sysSchedule.savedAt ? new Date(sysSchedule.savedAt).toLocaleDateString('he-IL') : '';
+  st.textContent = `נטענה מערכת שעות: ${withHours.length} מורות עם שעות (קובץ: ${sysSchedule.fileName||''}${when ? ', '+when : ''}). חל על דוחות מ-${MONTH_NAMES[fm-1]} ${fy} ואילך.`;
+  const rows = []; const unmatched = []; const noHours = [];
+  ids.forEach(id=>{
+    const t = teachers.find(x=>normId(x.idNumber)===id);
+    const c = sysSchedule.byId[id];
+    const nm = (sysSchedule.names||{})[id] || id;
+    if(!t){ unmatched.push(nm); return; }
+    if(!Object.keys(c).length){ noHours.push(t.name); return; }
+    const sd = Object.keys(c).map(Number).sort((a,b)=>a-b);
+    const defined = getWorkDaysForMonth(t, sysYear, sysMonth).filter(d=>d<=5);
+    const missing = sd.filter(d=>!defined.includes(d)), extra = defined.filter(d=>!sd.includes(d));
+    const note = [missing.length ? 'חסר בהגדרה: '+missing.map(d=>DAY_LABELS[d]).join(', ') : '', extra.length ? 'מוגדר בלי שיעורים: '+extra.map(d=>DAY_LABELS[d]).join(', ') : ''].filter(Boolean).join(' · ');
+    rows.push(`<tr><td>${escapeHtml(t.name)}</td><td>${sd.map(d=>DAY_LABELS[d]+' '+c[d]).join(' · ')}</td><td>${defined.map(d=>DAY_LABELS[d]).join(', ') || 'לא הוגדרו'}</td><td>${note ? '⚠️ '+note : '✓'}</td></tr>`);
+  });
+  rows.sort();
+  let h = `<details style="margin-top:8px;"><summary style="cursor:pointer;">פירוט לפי מורה, והשוואה לימי העבודה המוגדרים ב${MONTH_NAMES[sysMonth]} ${sysYear}</summary>
+    <div style="overflow-x:auto;"><table class="rep-table"><thead><tr><th>מורה</th><th>מערכת שעות (יום: שעות)</th><th>ימי עבודה מוגדרים</th><th>הערה</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  if(noHours.length) h += `<div class="hint">ללא שעות במערכת השעות (מחולקות כרגיל): ${noHours.map(escapeHtml).join(', ')}</div>`;
+  if(unmatched.length) h += `<div class="hint">במערכת השעות אך לא נמצאו ביומן הנוכחות: ${unmatched.map(escapeHtml).join(', ')}</div>`;
+  h += '</details>';
+  list.innerHTML = h;
 }
 
 /* ---- קריאת ה-PDF של העירייה ----
@@ -2266,6 +2463,7 @@ function renderSysPage(){
   document.getElementById('sysMonthLabel').textContent = `${MONTH_NAMES[sysMonth]} ${sysYear}`;
   renderHomeroomPanel();
   renderSavedReports();
+  renderSchedPanel();
   updateSysOpenState();
   if(sysRows) renderSysResults();
 }
@@ -2274,6 +2472,7 @@ function sysMonthShift(d){
   if(sysMonth<0){ sysMonth = 11; sysYear--; }
   if(sysMonth>11){ sysMonth = 0; sysYear++; }
   document.getElementById('sysMonthLabel').textContent = `${MONTH_NAMES[sysMonth]} ${sysYear}`;
+  renderSchedPanel();
 }
 
 /* --- מחנכות --- */
@@ -2400,9 +2599,10 @@ function buildSysEntries(){
       sysEntries.push({...old, teacher:t, isHome, cityTotal:r.total, sumOk:r.sumOk, label:parts.join(' ')});
     } else {
       // ימי העבודה נלקחים לפי חודש הדוח (ולא לפי התאריך של היום)
-      const days = sysDaysFor(t, y, m, r.from, r.to);
-      const res = distributeHours(amounts, days);
-      sysEntries.push({key, teacher:t, idNumber:r.idNumber, label:parts.join(' '), amounts, days, alloc:res.alloc, cityTotal:r.total, sumOk:r.sumOk, isHome, from:r.from, to:r.to});
+      const sp = sysPlanFor(t, amounts, y, m, sysDaysFor(t, y, m, r.from, r.to));
+      const days = sp.days;
+      const res = distributeHours(amounts, days, sp.plan);
+      sysEntries.push({key, teacher:t, idNumber:r.idNumber, label:parts.join(' '), amounts, days, sched:!!sp.plan, alloc:res.alloc, cityTotal:r.total, sumOk:r.sumOk, isHome, from:r.from, to:r.to});
       fresh++;
     }
   });
@@ -2416,13 +2616,13 @@ function sysReportId(y,m){ return `sysrep-${y}-${pad2(m+1)}`; }
 function serEntry(e){
   return {teacherId:e.teacher.id, tname:e.teacher.name||'', tid:e.teacher.idNumber||'', idNumber:e.idNumber, label:e.label||'',
     amounts:e.amounts, days:e.days, alloc:e.alloc, cityTotal:e.cityTotal, sumOk:!!e.sumOk, isHome:!!e.isHome,
-    fromMs:e.from.getTime(), toMs:e.to.getTime()};
+    fromMs:e.from.getTime(), toMs:e.to.getTime(), sched:!!e.sched};
 }
 function desEntry(s){
   const t = teachers.find(x=>x.id===s.teacherId) || {id:s.teacherId, name:s.tname, idNumber:s.tid};
   const from = new Date(s.fromMs), to = new Date(s.toMs);
   return {key:s.teacherId+'|'+s.fromMs+'|'+s.toMs, teacher:t, idNumber:s.idNumber, label:s.label||'', amounts:s.amounts, days:s.days||[],
-    alloc:s.alloc||{}, cityTotal:s.cityTotal, sumOk:s.sumOk, isHome:s.isHome, from, to};
+    alloc:s.alloc||{}, cityTotal:s.cityTotal, sumOk:s.sumOk, isHome:s.isHome, sched:!!s.sched, from, to};
 }
 function scheduleSysSave(){
   clearTimeout(sysSaveTimer);
@@ -2511,6 +2711,12 @@ function closeSysReport(){
   updateSysOpenState(); renderSavedReports();
 }
 
+function schedNoteHtml(e){
+  if(!e.sched) return '';
+  const c = schedFor(e.teacher); if(!c) return ' · פרונטלי לפי מערכת השעות';
+  const sT = Object.values(c).reduce((a,b)=>a+b,0)*100;
+  return ' · פרונטלי לפי מערכת השעות' + (sT!==(e.amounts.front||0) ? ` (במערכת השעות ${fmtH(sT)} שעות, בדוח העירייה ${fmtH(e.amounts.front||0)}: הותאם יחסית)` : '');
+}
 function sysCardHtml(e,i){
   const cells = HOUR_ROWS.map(r=>{
     const tds = [0,1,2,3,4,5].map(d=>{
@@ -2525,7 +2731,7 @@ function sysCardHtml(e,i){
     <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">
       <div>
         <h3>${escapeHtml(e.teacher.name)}</h3>${e.isHome ? '<span class="badge-home">מחנכת</span>' : ''}
-        <div class="hint">ת.ז. ${escapeHtml(e.teacher.idNumber || e.idNumber)}${e.label ? ' · '+escapeHtml(e.label) : ''} · ימי עבודה: ${e.days.map(d=>DAY_LABELS[d]).join(', ') || 'לא הוגדרו'}</div>
+        <div class="hint">ת.ז. ${escapeHtml(e.teacher.idNumber || e.idNumber)}${e.label ? ' · '+escapeHtml(e.label) : ''} · ימי עבודה: ${e.days.map(d=>DAY_LABELS[d]).join(', ') || 'לא הוגדרו'}${schedNoteHtml(e)}</div>
       </div>
       <button class="pill-btn" onclick="sysRedistribute(${i})">חלוקה אוטומטית מחדש</button>
     </div>
@@ -2574,8 +2780,12 @@ function sysCellEdit(el){
 }
 function sysRedistribute(i){
   const e = sysEntries[i];
-  if(e.from && e.to && teachers.some(x=>x.id===e.teacher.id)) e.days = sysDaysFor(teachers.find(x=>x.id===e.teacher.id), sysYear, sysMonth, e.from, e.to);
-  e.alloc = distributeHours(e.amounts, e.days).alloc;
+  let plan = null;
+  if(e.from && e.to && teachers.some(x=>x.id===e.teacher.id)){
+    const sp = sysPlanFor(teachers.find(x=>x.id===e.teacher.id), e.amounts, sysYear, sysMonth, sysDaysFor(teachers.find(x=>x.id===e.teacher.id), sysYear, sysMonth, e.from, e.to));
+    e.days = sp.days; plan = sp.plan; e.sched = !!sp.plan;
+  }
+  e.alloc = distributeHours(e.amounts, e.days, plan).alloc;
   document.getElementById(`sysCard${i}`).outerHTML = sysCardHtml(e,i);
   refreshSysCard(i);
   if(sysOpenId) scheduleSysSave();
@@ -3256,6 +3466,8 @@ window.saveClosure = saveClosure;
 window.editClosureRun = editClosureRun;
 window.deleteClosureRun = deleteClosureRun;
 window.onSysPdfChosen = onSysPdfChosen;
+window.onSchedPdfChosen = onSchedPdfChosen;
+window.schedFromShift = schedFromShift;
 window.sysMonthShift = sysMonthShift;
 window.sysCellEdit = sysCellEdit;
 window.sysRedistribute = sysRedistribute;

@@ -2228,10 +2228,11 @@ function validateAlloc(amounts, days, alloc){
 }
 
 /* ================= מערכת שעות: שעות פרונטליות לפי ימים ================= */
+const SCHED_FROM_DEFAULT = '2026-09';
 let sysSchedule = null;   // {fromYM, byId:{מספר ת.ז.:{יום:כמות שעות}}, names, fileName, savedAt}
 const ymKey = (y,m)=> `${y}-${pad2(m+1)}`;
 async function loadScheduleDoc(){
-  try{ const sn = await getDoc(doc(db,'absences','cfg-schedule')); sysSchedule = sn.exists() ? sn.data() : null; }
+  try{ const sn = await getDoc(doc(db,'absences','cfg-schedule')); sysSchedule = sn.exists() ? sn.data() : null; if(sysSchedule && !sysSchedule.fromSet) sysSchedule.fromYM = SCHED_FROM_DEFAULT; }
   catch(e){ console.error('loadSchedule', e); }
 }
 async function saveScheduleDoc(){ await setDoc(doc(db,'absences','cfg-schedule'), sysSchedule); }
@@ -2332,7 +2333,7 @@ async function onSchedPdfChosen(){
       byId[id] = r.days; names[id] = r.name;
     }
     if(!pages){ st.innerHTML = '<span style="color:var(--absence)">לא נמצאו מערכות שעות של מורות בקובץ. נא לוודא שזה קובץ מערכת השעות.</span>'; return; }
-    sysSchedule = {fromYM:(sysSchedule && sysSchedule.fromYM) || ymKey(today.getFullYear(), today.getMonth()), byId, names, fileName:f.name, savedAt:Date.now()};
+    sysSchedule = {fromYM:(sysSchedule && sysSchedule.fromYM) || SCHED_FROM_DEFAULT, fromSet:!!(sysSchedule && sysSchedule.fromSet), byId, names, fileName:f.name, savedAt:Date.now()};
     await saveScheduleDoc();
     document.getElementById('schedPdfInput').value = '';
     renderSchedPanel();
@@ -2344,9 +2345,9 @@ async function onSchedPdfChosen(){
 }
 async function schedFromShift(d){
   if(!sysSchedule) return;
-  let [y,m] = (sysSchedule.fromYM||ymKey(today.getFullYear(), today.getMonth())).split('-').map(Number); m--;
+  let [y,m] = (sysSchedule.fromYM||SCHED_FROM_DEFAULT).split('-').map(Number); m--;
   m += d; if(m<0){ m=11; y--; } if(m>11){ m=0; y++; }
-  sysSchedule.fromYM = ymKey(y,m);
+  sysSchedule.fromYM = ymKey(y,m); sysSchedule.fromSet = true;
   renderSchedPanel();
   try{ await saveScheduleDoc(); }catch(e){ console.error(e); }
 }
@@ -2354,7 +2355,7 @@ function renderSchedPanel(){
   const lab = document.getElementById('schedFromLabel'); if(!lab) return;
   const st = document.getElementById('schedStatus'), list = document.getElementById('schedList');
   if(!sysSchedule){ lab.textContent = '—'; list.innerHTML = ''; if(!st.textContent) st.textContent = 'עדיין לא הועלתה מערכת שעות.'; return; }
-  const [fy,fm] = (sysSchedule.fromYM||ymKey(today.getFullYear(), today.getMonth())).split('-').map(Number);
+  const [fy,fm] = (sysSchedule.fromYM||SCHED_FROM_DEFAULT).split('-').map(Number);
   lab.textContent = `${MONTH_NAMES[fm-1]} ${fy}`;
   const ids = Object.keys(sysSchedule.byId||{});
   const withHours = ids.filter(id=>Object.keys(sysSchedule.byId[id]).length);
@@ -2790,6 +2791,20 @@ function sysRedistribute(i){
   refreshSysCard(i);
   if(sysOpenId) scheduleSysSave();
 }
+/* מחשב מחדש רק מורות שהחלוקה שלהן אמורה להשתנות (יש להן מערכת שעות, או שעובדות בשישי בלי שעה פרונטלית בשישי) */
+function sysNeedsSchedule(e){
+  const t = teachers.find(x=>x.id===e.teacher.id); if(!t || !e.from) return false;
+  const sp = sysPlanFor(t, e.amounts, sysYear, sysMonth, sysDaysFor(t, sysYear, sysMonth, e.from, e.to));
+  if(sp.plan) return true;
+  return sp.days.includes(5) && (e.amounts.front||0)>=100 && !((e.alloc.front||{})[5]>0);
+}
+function sysApplyScheduleAll(){
+  const idx = []; sysEntries.forEach((e,i)=>{ if(sysNeedsSchedule(e)) idx.push(i); });
+  if(!idx.length){ alert('אין מורות שהחלוקה שלהן צריכה להשתנות. כולן כבר מחולקות לפי מערכת השעות, או שאין להן מערכת שעות ואין צורך בתיקון שישי.'); return; }
+  if(!confirm(`החלוקה של ${idx.length} בלוקים תחושב מחדש לפי מערכת השעות (ושעה פרונטלית בשישי). תיקונים ידניים בבלוקים האלו יימחקו, שאר הבלוקים לא ישתנו. להמשיך?`)) return;
+  idx.forEach(i=>sysRedistribute(i));
+  const st = document.getElementById('sysStatus'); if(st) st.textContent = `עודכנו ${idx.length} בלוקים לפי מערכת השעות.`;
+}
 function renderSysResults(){
   const box = document.getElementById('sysResults');
   let h = '';
@@ -2802,7 +2817,7 @@ function renderSysResults(){
     document.getElementById('sysExportBar').style.display = 'none';
     return;
   }
-  h += `<div class="sys-box info">${sysEntries.length} בלוקים לחודש ${MONTH_NAMES[sysMonth]} ${sysYear}. מומלץ לעבור על הבלוקים המסומנים באדום לפני ההורדה. אפשר לתקן כל מספר ידנית, ימים שאינם ימי עבודה נעולים.</div>`;
+  h += `<div class="sys-box info">${sysEntries.length} בלוקים לחודש ${MONTH_NAMES[sysMonth]} ${sysYear}. מומלץ לעבור על הבלוקים המסומנים באדום לפני ההורדה. אפשר לתקן כל מספר ידנית, ימים שאינם ימי עבודה נעולים.<div style="margin-top:8px;"><button class="pill-btn" onclick="sysApplyScheduleAll()">🗓️ החלת מערכת השעות ושעה פרונטלית בשישי על הדוח</button></div></div>`;
   h += sysEntries.map((e,i)=>sysCardHtml(e,i)).join('');
   box.innerHTML = h;
   sysEntries.forEach((e,i)=>refreshSysCard(i));
@@ -3467,6 +3482,7 @@ window.editClosureRun = editClosureRun;
 window.deleteClosureRun = deleteClosureRun;
 window.onSysPdfChosen = onSysPdfChosen;
 window.onSchedPdfChosen = onSchedPdfChosen;
+window.sysApplyScheduleAll = sysApplyScheduleAll;
 window.schedFromShift = schedFromShift;
 window.sysMonthShift = sysMonthShift;
 window.sysCellEdit = sysCellEdit;

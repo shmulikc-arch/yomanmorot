@@ -3302,7 +3302,7 @@ function exportSubsPdf(){
     pagesHtml += mk(inner);
     if(p.tailNext) pagesHtml += mk(`<div class="tail" style="margin-top:0">${tailHtml}</div>`);
   });
-  const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${escapeHtml(subsFileTitle(rows))}</title>
+  const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${escapeHtml(subsFileTitle(rows0))}</title>
 <style>
 @page{ size:A4; margin:0; }
 html,body{ margin:0; padding:0; }
@@ -3326,7 +3326,7 @@ tr.h th{ background:#EBDDF0; height:${HEAD}mm; white-space:normal; line-height:1
   document.body.appendChild(fr);
   fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
   const oldTitle = document.title;
-  const go = ()=>{ document.title = subsFileTitle(rows); fr.contentDocument.title = document.title; fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(()=>{ document.title = oldTitle; fr.remove(); }, 60000); };
+  const go = ()=>{ document.title = subsFileTitle(rows0); fr.contentDocument.title = document.title; fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(()=>{ document.title = oldTitle; fr.remove(); }, 60000); };
   setTimeout(()=>{ const ims = [...fr.contentDocument.images].filter(x=>!x.complete); if(ims.length){ let n = ims.length; ims.forEach(im=>{ im.onload = im.onerror = ()=>{ if(--n===0) go(); }; }); } else go(); }, 300);
 }
 async function exportSubs(){
